@@ -54,3 +54,23 @@ test("follows near the upper middle, suspends on manual scroll, then resumes", (
     act(() => vi.advanceTimersByTime(3000));
     expect(scrollTo).toHaveBeenCalledTimes(1);
 });
+
+test("re-centres the current line when the lyric area changes size", () => {
+    let resized: (() => void) | null = null;
+    vi.stubGlobal(
+        "ResizeObserver",
+        class {
+            constructor(callback: () => void) {
+                resized = callback;
+            }
+            observe() {}
+            disconnect() {}
+        },
+    );
+    const scrollTo = vi.fn();
+    Element.prototype.scrollTo = scrollTo as unknown as typeof Element.prototype.scrollTo;
+    render(<LyricView lines={lines} positionMs={1600} onSeek={() => {}} />);
+    scrollTo.mockClear();
+    act(() => resized?.());
+    expect(scrollTo).toHaveBeenCalledOnce();
+});

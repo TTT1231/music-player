@@ -1,0 +1,166 @@
+/* 导入对话框：从 design/preview/desktop.html 移植。一眼就知道怎么做：大按钮、大字、不解释。 */
+.import-backdrop {
+    --ink: #1c2629;
+    --muted: #5b6764;
+    --cobalt: #2440b8;
+    --sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.5);
+    font-family: var(--sans);
+    color: var(--ink);
+}
+:where(.import-backdrop button) {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+}
+.import-backdrop :focus-visible {
+    outline: 2px solid var(--cobalt);
+    outline-offset: 2px;
+}
+.import-dialog {
+    position: relative;
+    width: 460px;
+    background: #fbfbfa;
+    color: var(--ink);
+    border-radius: 20px;
+    padding: 32px 32px 28px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+}
+.import-dialog h2 {
+    margin: 0 0 20px;
+    font-size: 22px;
+    font-weight: 600;
+    text-align: center;
+}
+.import-icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.import-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--muted);
+}
+.import-close:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--ink);
+}
+.import-close .import-icon {
+    width: 18px;
+    height: 18px;
+}
+.import-drop {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 14px;
+    height: 190px;
+    border: 2px dashed #cdd3d1;
+    border-radius: 16px;
+    text-align: center;
+    transition:
+        border-color 0.15s,
+        background 0.15s;
+}
+.import-drop.over {
+    border-color: var(--cobalt);
+    background: rgba(36, 64, 184, 0.06);
+}
+.import-drop-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(36, 64, 184, 0.08);
+    color: var(--cobalt);
+}
+.import-drop-icon .import-icon {
+    width: 30px;
+    height: 30px;
+    stroke-width: 1.6;
+}
+.import-drop strong {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+}
+.import-drop.over strong {
+    color: var(--cobalt);
+}
+.import-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 18px;
+}
+.import-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 48px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    transition:
+        background 0.15s,
+        transform 0.1s;
+}
+.import-button:hover {
+    background: #f3f4f2;
+}
+.import-button:active {
+    transform: scale(0.98);
+}
+.import-button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+.import-button.primary {
+    background: var(--cobalt);
+    color: #fff;
+    box-shadow: 0 6px 18px rgba(36, 64, 184, 0.28);
+}
+.import-button.primary:hover {
+    background: #1c3499;
+}
+.import-result {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eceeec;
+}
+.import-result p {
+    flex: 1;
+    margin: 0;
+    font-size: 16px;
+}
+.import-result .import-button {
+    padding: 0 28px;
+}

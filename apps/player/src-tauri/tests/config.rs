@@ -24,7 +24,20 @@ fn app_configuration_keeps_runtime_local_and_targets_nsis() {
     let capability: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
     assert!(capability.get("remote").is_none());
     assert_eq!(capability["windows"], serde_json::json!(["main"]));
-    assert_eq!(capability["permissions"], serde_json::json!(["core:default"]));
+    assert_eq!(
+        capability["permissions"],
+        serde_json::json!([
+            "core:default",
+            "core:window:allow-minimize",
+            "core:window:allow-toggle-maximize",
+            "core:window:allow-close",
+            "core:window:allow-start-dragging"
+        ])
+    );
+    assert_eq!(config["app"]["windows"][0]["decorations"], false);
+    // 原型布局以 1024px 宽为下限（min-width: 1024px），窗口不能缩得更窄，否则右侧队列和底栏按钮被裁掉
+    assert_eq!(config["app"]["windows"][0]["minWidth"], 1024);
+    assert_eq!(config["app"]["windows"][0]["minHeight"], 640);
 }
 
 #[test]

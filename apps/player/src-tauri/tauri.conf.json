@@ -15,7 +15,10 @@
                 "label": "main",
                 "title": "music",
                 "dragDropEnabled": true,
+                "decorations": false,
                 "width": 1200,
+                "minWidth": 1024,
+                "minHeight": 640,
                 "height": 800
             }
         ],

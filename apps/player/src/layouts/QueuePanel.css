@@ -1,0 +1,370 @@
+.queue {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    width: var(--qw, 414px);
+    padding-top: 44px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.18);
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    transition:
+        transform 0.5s cubic-bezier(0.22, 0.8, 0.24, 1),
+        opacity 0.4s;
+}
+.queue-closed {
+    transform: translateX(100%);
+    opacity: 0;
+    pointer-events: none;
+}
+.q-head {
+    display: flex;
+    align-items: center;
+    padding: 0 12px 0 18px;
+    height: 40px;
+    flex: none;
+}
+.q-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+.q-tools {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+}
+.queue button {
+    font: inherit;
+    color: inherit;
+    border: 0;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+}
+.q-btn {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.75) !important;
+}
+.q-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff !important;
+}
+.q-btn[aria-pressed="true"] {
+    color: #fff !important;
+    background: rgba(255, 255, 255, 0.12);
+}
+.q-icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.q-sub {
+    display: flex;
+    align-items: center;
+    padding: 0 12px 6px 18px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+    flex: none;
+}
+.q-sub .q-icon {
+    width: 19px;
+    height: 19px;
+}
+.q-search-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 14px 8px 18px;
+}
+.q-search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+}
+.q-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: none;
+    color: #fff;
+    font-size: 13px;
+}
+.q-search input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+}
+.q-search .q-icon {
+    width: 15px;
+    height: 15px;
+    color: rgba(255, 255, 255, 0.5);
+}
+.q-clear {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+.q-clear:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff !important;
+}
+.q-clear .q-icon {
+    width: 16px;
+    height: 16px;
+    color: inherit;
+}
+.q-cancel {
+    flex: none;
+    font-size: 14px !important;
+    color: rgba(255, 255, 255, 0.75) !important;
+    padding: 4px 2px !important;
+}
+.q-cancel:hover {
+    color: #fff !important;
+}
+.q-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.q-row {
+    position: relative;
+    user-select: none;
+    display: grid;
+    grid-template-columns: 34px 56px minmax(0, 1fr) 48px;
+    align-items: center;
+    gap: 12px;
+    height: 76px;
+    padding: 0 22px 0 14px;
+    cursor: default;
+    transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.q-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.q-row.on {
+    background: rgba(255, 255, 255, 0.1);
+}
+.q-row.dragging {
+    z-index: 3;
+    transition: none;
+    scale: 1.02;
+    background: rgba(60, 54, 70, 0.96);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    border-radius: 6px;
+}
+.q-sorting,
+.q-sorting * {
+    cursor: grabbing !important;
+}
+.q-sorting .q-row:not(.dragging):hover {
+    background: none;
+}
+.q-sorting .q-row.on:not(.dragging) {
+    background: rgba(255, 255, 255, 0.1);
+}
+.q-row .n {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.55);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.q-row .cv {
+    position: relative;
+}
+.q-row .cover {
+    border-radius: 3px;
+}
+.q-row .eq {
+    position: absolute;
+    inset: 0;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 3px;
+}
+.q-row.on .eq {
+    display: flex;
+}
+.q-row .eq i {
+    width: 3px;
+    height: 16px;
+    background: #fff;
+    border-radius: 1px;
+    animation: queue-eq 0.9s ease-in-out infinite alternate;
+}
+.q-row .eq i:nth-child(2) {
+    animation-delay: -0.3s;
+}
+.q-row .eq i:nth-child(3) {
+    animation-delay: -0.6s;
+}
+.q-row .eq i:nth-child(4) {
+    animation-delay: -0.45s;
+}
+.queue.paused .eq i {
+    animation-play-state: paused;
+}
+@keyframes queue-eq {
+    from {
+        transform: scaleY(0.25);
+    }
+    to {
+        transform: scaleY(1);
+    }
+}
+.q-text {
+    min-width: 0;
+}
+.q-row .t {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.q-row .a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
+    overflow: hidden;
+}
+.q-row .a span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.q-row .tag {
+    flex: none;
+    font-size: 10px;
+    line-height: 14px;
+    padding: 0 4px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.65);
+}
+.q-row .d {
+    position: relative;
+    display: grid;
+    justify-items: end;
+    align-items: center;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.q-row .d > * {
+    grid-area: 1 / 1;
+}
+/* 移出播放列表：悬停或键盘聚焦时，时长换成 ×（只移出列表，不删除文件） */
+.q-del {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: rgba(255, 255, 255, 0.6) !important;
+    visibility: hidden;
+}
+.q-del:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff !important;
+}
+.q-del .q-icon {
+    width: 15px;
+    height: 15px;
+}
+.q-row:hover .q-del,
+.q-row:focus-within .q-del {
+    visibility: visible;
+}
+.q-row:hover .dur,
+.q-row:focus-within .dur {
+    visibility: hidden;
+}
+.q-sorting .q-del {
+    visibility: hidden !important;
+}
+.q-sorting .dur {
+    visibility: visible !important;
+}
+.q-row.on .t,
+.q-row.on .d {
+    color: #fff;
+    font-weight: 600;
+}
+.q-row.on .a {
+    color: rgba(255, 255, 255, 0.85);
+}
+.q-list.compact .q-row {
+    grid-template-columns: 34px minmax(0, 1fr) 48px;
+    height: 49px;
+}
+.q-list.compact .q-row .n {
+    position: relative;
+    height: 18px;
+}
+.q-list.compact .eq {
+    inset: 0;
+    background: none;
+}
+.q-list.compact .eq i {
+    height: 12px;
+}
+.q-list.compact .q-row.on .num {
+    visibility: hidden;
+}
+.q-row mark {
+    background: none;
+    color: #ffd166;
+    font-weight: 600;
+}
+.q-empty {
+    padding: 40px 22px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.6);
+}
+.queue :focus-visible {
+    outline: 2px solid var(--moon, #d6e2ea);
+    outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .queue,
+    .q-row {
+        transition: none;
+    }
+    .q-row.dragging {
+        scale: 1;
+    }
+    .q-row .eq i {
+        animation: none;
+    }
+}

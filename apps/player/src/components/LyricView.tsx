@@ -41,6 +41,17 @@ export function LyricView({ lines, positionMs, onSeek, className = "" }: LyricVi
         [],
     );
 
+    // 布局变化（收起队列、调整窗口、换行数改变）后重新把当前行放回原位，与原型一致
+    useEffect(() => {
+        const view = container.current;
+        if (!view || typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(() => {
+            if (pauseTimer.current === null) recenter();
+        });
+        observer.observe(view);
+        return () => observer.disconnect();
+    }, [recenter]);
+
     const manualScroll = () => {
         if (pauseTimer.current !== null) clearTimeout(pauseTimer.current);
         pauseTimer.current = setTimeout(() => {
