@@ -2,10 +2,15 @@
 //!
 //! 实时输出和离线渲染共用同一个 [`Stretcher`]，所以离线测试的结果代表实际听到的效果。
 
+mod decode;
+mod stretch;
+
 use std::fmt;
 use std::io;
-use std::path::Path;
 use std::time::Duration;
+
+pub use decode::{decode_file, probe};
+pub use stretch::{Stretcher, render};
 
 #[derive(Debug)]
 pub enum AudioError {
@@ -41,7 +46,7 @@ impl Pcm {
     }
 
     pub fn duration(&self) -> Duration {
-        Duration::from_secs_f64(self.frames() as f64 / self.sample_rate as f64)
+        Duration::from_secs_f64(self.frames() as f64 / self.sample_rate.max(1) as f64)
     }
 }
 
@@ -57,56 +62,4 @@ pub struct Cover {
 pub struct MediaInfo {
     pub duration: Duration,
     pub cover: Option<Cover>,
-}
-
-/// 把整个文件解码到内存。
-pub fn decode_file(path: &Path) -> Result<Pcm, AudioError> {
-    let _ = path;
-    todo!("decode_file")
-}
-
-/// 读取时长和内嵌封面（mp3 的 ID3 图片帧，ogg 的 METADATA_BLOCK_PICTURE）。
-pub fn probe(path: &Path) -> Result<MediaInfo, AudioError> {
-    let _ = path;
-    todo!("probe")
-}
-
-/// 时间伸缩处理器：倍速改变时长不改变音高，升降调改变音高不改变时长。
-pub struct Stretcher {
-    _private: (),
-}
-
-impl Stretcher {
-    pub fn new(sample_rate: u32, channels: u16) -> Self {
-        let _ = (sample_rate, channels);
-        todo!("Stretcher::new")
-    }
-
-    pub fn set_rate(&mut self, rate: f32) {
-        let _ = rate;
-        todo!("Stretcher::set_rate")
-    }
-
-    pub fn set_pitch(&mut self, semitones: i8) {
-        let _ = semitones;
-        todo!("Stretcher::set_pitch")
-    }
-
-    /// 输入一段交错采样，把可用的输出追加到 `output`。
-    pub fn process(&mut self, input: &[f32], output: &mut Vec<f32>) {
-        let _ = (input, output);
-        todo!("Stretcher::process")
-    }
-
-    /// 输入结束，取出剩余输出。
-    pub fn flush(&mut self, output: &mut Vec<f32>) {
-        let _ = output;
-        todo!("Stretcher::flush")
-    }
-}
-
-/// 离线渲染：用 [`Stretcher`] 处理整段音频。
-pub fn render(pcm: &Pcm, rate: f32, pitch_semitones: i8) -> Pcm {
-    let _ = (pcm, rate, pitch_semitones);
-    todo!("render")
 }
