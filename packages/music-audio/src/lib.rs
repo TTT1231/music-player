@@ -3,6 +3,11 @@
 //! 实时输出和离线渲染共用同一个 [`Stretcher`]，所以离线测试的结果代表实际听到的效果。
 
 mod decode;
+#[cfg(feature = "device")]
+mod device;
+mod engine;
+mod rate_converter;
+mod stream_decoder;
 mod stretch;
 
 use std::fmt;
@@ -10,6 +15,11 @@ use std::io;
 use std::time::Duration;
 
 pub use decode::{decode_file, probe};
+#[cfg(feature = "device")]
+pub use device::DeviceOutput;
+pub use engine::{AudioSink, Engine, EngineEvent};
+pub use rate_converter::RateConverter;
+pub use stream_decoder::StreamDecoder;
 pub use stretch::{Stretcher, render};
 
 #[derive(Debug)]
