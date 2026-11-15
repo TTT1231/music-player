@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["packages/music-core", "packages/music-audio"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"

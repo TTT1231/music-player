@@ -1,0 +1,9 @@
+{
+    "name": "@music/core",
+    "version": "0.0.1",
+    "private": true,
+    "scripts": {
+        "test": "cargo test -p music-core",
+        "typecheck": "cargo check -p music-core --tests"
+    }
+}

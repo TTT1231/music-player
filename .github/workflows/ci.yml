@@ -16,6 +16,7 @@ jobs:
               with:
                   node-version: 24
                   cache: pnpm
+            - uses: Swatinem/rust-cache@v2
             - run: pnpm install --frozen-lockfile
             - name: Static checks
               run: pnpm check:ci:static

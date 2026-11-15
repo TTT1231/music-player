@@ -1,0 +1,9 @@
+{
+    "name": "@music/audio",
+    "version": "0.0.1",
+    "private": true,
+    "scripts": {
+        "test": "cargo test -p music-audio",
+        "typecheck": "cargo check -p music-audio --tests"
+    }
+}

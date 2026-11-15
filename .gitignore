@@ -5,6 +5,7 @@ out/
 coverage/
 .turbo/
 *.tsbuildinfo
+target/
 
 # 本地开发素材，不进 git：assets/ 是开发用曲库（不进安装包），design/ 是设计原型
 /assets/

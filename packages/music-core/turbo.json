@@ -1,0 +1,18 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "test": {
+            "inputs": [
+                "$TURBO_DEFAULT$",
+                "$TURBO_ROOT$/Cargo.toml",
+                "$TURBO_ROOT$/Cargo.lock",
+                "$TURBO_ROOT$/fixtures/music/**"
+            ],
+            "outputs": []
+        },
+        "typecheck": {
+            "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock"],
+            "outputs": []
+        }
+    }
+}

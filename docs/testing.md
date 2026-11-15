@@ -24,6 +24,24 @@ pnpm --filter @music/request test src/request-client/request-client.test.ts
 
 已通过且输入未变的检查无需重复执行。pre-commit 只执行暂存 TS 文件的轻量 lint 和暂存文件的格式化；pre-push 自动执行 `pnpm typecheck`。
 
+## Rust 包与测试素材
+
+Rust 包（`packages/music-core`、`packages/music-audio`）各带一个只含脚本的 `package.json`：`test` 即 `cargo test -p <crate>`，`typecheck` 即 `cargo check -p <crate> --tests`，所以上表命令和 `pnpm test` 同样覆盖 Rust。追加的参数直接交给 cargo：
+
+```sh
+pnpm --filter @music/core test --test player shuffle
+```
+
+想一次看到所有失败的测试文件时加 `--no-fail-fast`。Rust 代码用 `cargo fmt --all` 格式化（[rustfmt.toml](../rustfmt.toml)）。
+
+测试素材在 `fixtures/music/`，由 [生成脚本](../scripts/gen-fixtures.mjs) 产出，需要 PATH 中有带 libmp3lame、libvorbis 的 ffmpeg：
+
+```sh
+node scripts/gen-fixtures.mjs
+```
+
+生成结果逐字节可重现；修改脚本后重新生成，与脚本一起提交。素材的内容（文件名、时长、频率、封面、歌词编码）以脚本为准。
+
 ## CI 与本地复现
 
 [CI](../.github/workflows/ci.yml) 使用根 [package.json](../package.json) 中的两个入口：

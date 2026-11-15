@@ -8,10 +8,12 @@
 project/
 ├── apps/
 │   └── player/              # Tauri 应用：src/ 界面，src-tauri/ 外壳，e2e/ 端到端测试
-├── crates/                  # Rust：music-core 曲库与歌词，music-audio 音频，tauri-plugin-playback 安卓能力
-├── fixtures/music/          # 测试用生成音频和歌词，进 git
+├── packages/                # 内部包，桌面和安卓共用
+│   ├── music-core/          # Rust：曲库、歌词、导入配对、播放模式、保存
+│   ├── music-audio/         # Rust：解码、倍速与升降调、封面
+│   └── request/ utils/      # TS 包，exports 直指 src 源码
+├── fixtures/music/          # 各层测试共用的生成音频和歌词，进 git
 ├── internal/                # 配置包（tsconfig）
-├── packages/                # 内部 TS 包，exports 直指 src 源码
 ├── scripts/                 # 检查范围、lint 等仓库脚本
 ├── docs/                    # 架构、测试说明、验收清单
 ├── design/preview/          # 设计原型（本地，不进 git）

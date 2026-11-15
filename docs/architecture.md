@@ -26,7 +26,7 @@
 
 ```
 Cargo.toml                 # Rust workspace
-crates/
+packages/                  # 与 TS 包同在一处，各带只含脚本的 package.json
 ├── music-core/            # 曲库、文件名解析、导入配对、LRC 解析、播放列表与模式、持久化
 ├── music-audio/           # 解码、输出、倍速与升降调；可离线渲染到内存
 └── tauri-plugin-playback/ # 安卓：前台服务、通知栏、音频焦点、文件选择（Kotlin）
@@ -34,7 +34,7 @@ apps/player/               # Tauri 应用 @music/player
 ├── src/                   # 界面：桌面和移动两套布局，共享状态与组件
 ├── src-tauri/             # 外壳：命令与事件、窗口（含桌面歌词）、接入插件
 └── e2e/                   # 桌面和安卓端到端测试
-fixtures/music/            # 测试用的短音频和歌词，由脚本生成，进 git
+fixtures/music/            # 各层测试共用的短音频和歌词，由脚本生成，进 git
 ```
 
 依赖方向：`apps/player/src-tauri` → `music-core`、`music-audio`、`tauri-plugin-playback`；`music-core` 和 `music-audio` 互不依赖，也不依赖 Tauri，可以单独测试。
@@ -73,7 +73,7 @@ fixtures/music/            # 测试用的短音频和歌词，由脚本生成，
 
 | 层       | 位置                            | 工具                                                       | 承接                                                                                          |
 | -------- | ------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 单测     | `crates/*`                      | `cargo test`                                               | 文件名解析、配对、LRC、播放模式与顺序、持久化；音频离线渲染后检查时长（倍速）和主频（升降调） |
+| 单测     | `packages/music-*`              | `cargo test`                                               | 文件名解析、配对、LRC、播放模式与顺序、持久化；音频离线渲染后检查时长（倍速）和主频（升降调） |
 | 组件     | `apps/player/src/**/*.test.tsx` | Vitest + Testing Library，`@tauri-apps/api/mocks` 模拟 IPC | 界面结构、交互、状态显示                                                                      |
 | 桌面 e2e | `apps/player/e2e/desktop`       | WebdriverIO + tauri-driver（Windows）                      | 真实应用的完整流程：导入、播放、拖动排序、桌面歌词、重启恢复                                  |
 | 安卓 e2e | `apps/player/e2e/android`       | Appium（UiAutomator2 + WebView 上下文），模拟器            | 文件选择、后台播放、通知栏控制、重启后仍可播放                                                |
