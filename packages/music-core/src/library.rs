@@ -1,7 +1,13 @@
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+use crate::name::parse_track_name;
+
+/// 支持的音频扩展名（小写）。解码能力由 music-audio 保证。
+const AUDIO_EXTENSIONS: &[&str] = &["mp3", "ogg", "flac", "m4a", "wav", "aac"];
 
 /// 待导入的文件：位置（桌面为路径，安卓为文件选择器返回的 URI）和显示用的文件名。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,8 +25,11 @@ impl FileRef {
     }
 
     pub fn from_path(path: &Path) -> Self {
-        let _ = path;
-        todo!("FileRef::from_path")
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Self::new(path.to_string_lossy(), file_name)
     }
 }
 
@@ -54,16 +63,42 @@ pub struct ImportReport {
     pub orphan_lyrics: usize,
 }
 
+/// 拆出不带扩展名的文件名和小写扩展名；没有扩展名时扩展名为空。
+fn split_extension(file_name: &str) -> (&str, String) {
+    match file_name.rsplit_once('.') {
+        Some((base, ext)) if !base.is_empty() => (base, ext.to_ascii_lowercase()),
+        _ => (file_name, String::new()),
+    }
+}
+
+/// 配对键：去掉扩展名后的文件名，忽略大小写和首尾空格。
+fn pair_key(base_name: &str) -> String {
+    base_name.trim().to_lowercase()
+}
+
 /// 文件扩展名（不区分大小写）是否为支持的音频格式。
 pub fn is_audio_file(file_name: &str) -> bool {
-    let _ = file_name;
-    todo!("is_audio_file")
+    let (_, ext) = split_extension(file_name);
+    AUDIO_EXTENSIONS.contains(&ext.as_str())
 }
 
 /// 递归列出文件夹（含子文件夹）中的所有文件，按路径排序。
 pub fn scan_dir(dir: &Path) -> io::Result<Vec<FileRef>> {
-    let _ = dir;
-    todo!("scan_dir")
+    let mut paths = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        for entry in std::fs::read_dir(&current)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                pending.push(entry.path());
+            } else if file_type.is_file() {
+                paths.push(entry.path());
+            }
+        }
+    }
+    paths.sort();
+    Ok(paths.iter().map(|p| FileRef::from_path(p)).collect())
 }
 
 /// 有顺序的播放列表；上一首、下一首按这里的顺序走。
@@ -104,19 +139,75 @@ impl Playlist {
     /// 导入歌曲和歌词：按文件名配对；同名歌曲原位替换；只有歌词时补给已有的同名歌曲；
     /// 其他文件忽略。
     pub fn import(&mut self, files: impl IntoIterator<Item = FileRef>) -> ImportReport {
-        let _ = files.into_iter();
-        todo!("Playlist::import")
+        let mut audio = Vec::new();
+        let mut lyrics: HashMap<String, FileRef> = HashMap::new();
+        for file in files {
+            let (base, ext) = split_extension(&file.file_name);
+            let key = pair_key(base);
+            if AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+                audio.push((key, base.to_string(), file));
+            } else if ext == "lrc" {
+                lyrics.entry(key).or_insert(file);
+            }
+        }
+
+        let mut report = ImportReport::default();
+        for (key, base, file) in audio {
+            let id = TrackId(key.clone());
+            let name = parse_track_name(&base);
+            let previous_lyrics = self.get(&id).and_then(|t| t.lyrics.clone());
+            let track = Track {
+                id: id.clone(),
+                title: name.title,
+                artist: name.artist,
+                artists: name.artists,
+                audio: file.location,
+                // 这次没带歌词时保留之前配对的歌词
+                lyrics: lyrics.get(&key).map(|l| l.location.clone()).or(previous_lyrics),
+            };
+            match self.position(&id) {
+                Some(pos) => self.tracks[pos] = track,
+                None => self.tracks.push(track),
+            }
+            if !report.added.contains(&id) {
+                report.added.push(id);
+            }
+        }
+
+        let imported: Vec<&str> = report.added.iter().map(|id| id.0.as_str()).collect();
+        for (key, file) in &lyrics {
+            if imported.contains(&key.as_str()) {
+                continue;
+            }
+            match self.tracks.iter_mut().find(|t| &t.id.0 == key) {
+                Some(track) => {
+                    track.lyrics = Some(file.location.clone());
+                    report.lyrics_attached += 1;
+                }
+                None => report.orphan_lyrics += 1,
+            }
+        }
+
+        report.with_lyrics = report
+            .added
+            .iter()
+            .filter(|id| self.get(id).is_some_and(|t| t.lyrics.is_some()))
+            .count();
+        report
     }
 
     /// 移出列表，不触碰磁盘上的文件。
     pub fn remove(&mut self, id: &TrackId) -> Option<Track> {
-        let _ = id;
-        todo!("Playlist::remove")
+        let pos = self.position(id)?;
+        Some(self.tracks.remove(pos))
     }
 
-    /// 把 `from` 位置的歌曲移到 `to` 位置。
+    /// 把 `from` 位置的歌曲移到 `to` 位置；越界时不做任何事。
     pub fn move_track(&mut self, from: usize, to: usize) {
-        let _ = (from, to);
-        todo!("Playlist::move_track")
+        if from >= self.tracks.len() || to >= self.tracks.len() || from == to {
+            return;
+        }
+        let track = self.tracks.remove(from);
+        self.tracks.insert(to, track);
     }
 }

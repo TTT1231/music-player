@@ -11,8 +11,33 @@ pub struct TrackName {
     pub title: String,
 }
 
+impl TrackName {
+    fn unknown_artist(title: &str) -> Self {
+        Self {
+            artist: UNKNOWN_ARTIST.into(),
+            artists: vec![UNKNOWN_ARTIST.into()],
+            title: title.trim().into(),
+        }
+    }
+}
+
 /// 解析去掉扩展名的文件名“歌手、歌手 - 歌名 (版本)”，只按第一个“ - ”拆分。
 pub fn parse_track_name(base_name: &str) -> TrackName {
-    let _ = base_name;
-    todo!("parse_track_name")
+    let Some((artist, title)) = base_name.split_once(" - ") else {
+        return TrackName::unknown_artist(base_name);
+    };
+    let artist = artist.trim();
+    if artist.is_empty() {
+        return TrackName::unknown_artist(title);
+    }
+    TrackName {
+        artist: artist.into(),
+        artists: artist
+            .split('、')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(String::from)
+            .collect(),
+        title: title.trim().into(),
+    }
 }
