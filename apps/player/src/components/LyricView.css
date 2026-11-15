@@ -1,0 +1,52 @@
+.lyrics {
+    overflow-y: auto;
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+    mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent);
+}
+
+.lyrics::-webkit-scrollbar {
+    display: none;
+}
+.lyrics .pad {
+    height: 42%;
+}
+.lyrics .ly {
+    display: block;
+    margin: 0;
+    padding: 0.42em 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    font-family: var(--lyric, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif);
+    font-size: inherit;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--moon, #d6e2ea);
+    opacity: 0.42;
+    text-align: left;
+    transform-origin: left center;
+    transition:
+        opacity 0.35s,
+        transform 0.35s,
+        color 0.35s;
+}
+.lyrics .ly:hover {
+    opacity: 0.7;
+}
+.lyrics .ly.past {
+    opacity: 0.28;
+}
+.lyrics .ly.is-active {
+    opacity: 1;
+    color: #fff;
+    transform: scale(1.08);
+    font-weight: 700;
+}
+.lyrics .ly.instrumental {
+    cursor: default;
+}
+.lyrics.center .ly {
+    transform-origin: center;
+    text-align: center;
+}

@@ -1,0 +1,26 @@
+.cover {
+    position: relative;
+    flex: none;
+    width: var(--s, 40px);
+    height: var(--s, 40px);
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: calc(var(--s, 40px) * 0.08);
+    overflow: hidden;
+}
+
+img.cover {
+    display: block;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.cover span {
+    position: absolute;
+    right: -0.12em;
+    bottom: -0.26em;
+    font-family: var(--serif, "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif);
+    font-weight: 900;
+    line-height: 1;
+    font-size: calc(var(--s, 40px) * 1.05);
+}
