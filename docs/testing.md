@@ -34,6 +34,15 @@ pnpm --filter @music/core test --test player shuffle
 
 想一次看到所有失败的测试文件时加 `--no-fail-fast`。Rust 代码用 `cargo fmt --all` 格式化（[rustfmt.toml](../rustfmt.toml)）。
 
+播放器应用的组件测试和类型检查：
+
+```sh
+pnpm --filter @music/player test
+pnpm --filter @music/player typecheck
+```
+
+应用类型检查包括前端 TypeScript 和 Tauri Rust 外壳。Windows 本地开发需要 Rust MSVC 工具链和 WebView2。
+
 测试素材在 `fixtures/music/`，由 [生成脚本](../scripts/gen-fixtures.mjs) 产出，需要 PATH 中有带 libmp3lame、libvorbis 的 ffmpeg：
 
 ```sh
@@ -44,7 +53,7 @@ node scripts/gen-fixtures.mjs
 
 ## CI 与本地复现
 
-[CI](../.github/workflows/ci.yml) 使用根 [package.json](../package.json) 中的两个入口：
+[CI](../.github/workflows/ci.yml) 在 Windows 上使用根 [package.json](../package.json) 中的两个入口：
 
 | 命令                   | 检查范围                              |
 | ---------------------- | ------------------------------------- |

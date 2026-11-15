@@ -1,0 +1,31 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "music",
+    "version": "0.1.0",
+    "identifier": "local.music.player",
+    "build": {
+        "beforeDevCommand": "pnpm exec vite --host 127.0.0.1 --port 1420 --strictPort",
+        "devUrl": "http://127.0.0.1:1420",
+        "beforeBuildCommand": "pnpm exec vite build",
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "music",
+                "width": 1200,
+                "height": 800
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost cover: http://cover.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; base-uri 'none'; object-src 'none'",
+            "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost cover: http://cover.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost ws://127.0.0.1:1420; base-uri 'none'; object-src 'none'"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "nsis",
+        "icon": ["icons/icon.png", "icons/icon.ico"]
+    }
+}

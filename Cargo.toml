@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["packages/music-core", "packages/music-audio"]
+members = ["packages/music-core", "packages/music-audio", "apps/player/src-tauri"]
 
 [workspace.package]
 edition = "2024"

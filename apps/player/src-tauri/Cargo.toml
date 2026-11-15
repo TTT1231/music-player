@@ -1,0 +1,23 @@
+[package]
+name = "music-player-shell"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "music_player_shell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+music-audio = { path = "../../../packages/music-audio", features = ["device"] }
+music-core = { path = "../../../packages/music-core" }
+tauri = { version = "2", features = [] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
