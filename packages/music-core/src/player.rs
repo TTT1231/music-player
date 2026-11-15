@@ -81,6 +81,11 @@ impl Player {
         &self.playlist
     }
 
+    /// 更新歌曲的已探测时长；歌曲不存在时返回 false。
+    pub fn set_duration(&mut self, id: &TrackId, duration_ms: u64) -> bool {
+        self.playlist.set_duration(id, duration_ms)
+    }
+
     pub fn current(&self) -> Option<&TrackId> {
         self.current.as_ref()
     }

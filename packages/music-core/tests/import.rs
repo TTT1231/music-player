@@ -73,6 +73,18 @@ fn reimporting_same_name_replaces_in_place_without_duplicates() {
 }
 
 #[test]
+fn imported_tracks_have_unknown_duration_and_replacements_are_reprobed() {
+    let mut list = playlist(&["甲 - 一", "乙 - 二"]);
+    let ids = common::ids(&list);
+    assert!(list.tracks().iter().all(|track| track.duration_ms.is_none()));
+    assert!(list.set_duration(&ids[0], 123_456));
+    assert_eq!(list.get(&ids[0]).unwrap().duration_ms, Some(123_456));
+    assert!(!list.set_duration(&music_core::TrackId("missing".into()), 10));
+    list.import([FileRef::new("/新位置/甲 - 一.mp3", "甲 - 一.mp3")]);
+    assert_eq!(list.get(&ids[0]).unwrap().duration_ms, None);
+}
+
+#[test]
 fn folder_import_includes_subfolders() {
     let files = scan_dir(&fixtures()).unwrap();
     let mut list = Playlist::new();

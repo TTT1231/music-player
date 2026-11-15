@@ -65,3 +65,27 @@ fn saving_again_replaces_the_file_and_leaves_no_temp_files() {
         .collect();
     assert_eq!(names, ["session.json"]);
 }
+
+#[test]
+fn duration_survives_round_trip_and_legacy_sessions_default_to_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.json");
+    let mut list = playlist(&["a - 一", "a - 二"]);
+    let track_ids = ids(&list);
+    assert!(list.set_duration(&track_ids[0], 183_456));
+    let mut player = Player::new(list);
+    assert!(player.set_duration(&track_ids[1], 42_000));
+    assert!(!player.set_duration(&music_core::TrackId("missing".into()), 1));
+    save_session(&path, &player.session()).unwrap();
+    let restored = load_session(&path).unwrap().unwrap();
+    assert_eq!(restored.tracks[0].duration_ms, Some(183_456));
+    assert_eq!(restored.tracks[1].duration_ms, Some(42_000));
+
+    let mut legacy: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    for track in legacy["tracks"].as_array_mut().unwrap() {
+        track.as_object_mut().unwrap().remove("duration_ms");
+    }
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let legacy = load_session(&path).unwrap().unwrap();
+    assert!(legacy.tracks.iter().all(|track| track.duration_ms.is_none()));
+}

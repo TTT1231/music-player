@@ -14,10 +14,15 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 music-audio = { path = "../../../packages/music-audio", features = ["device"] }
 music-core = { path = "../../../packages/music-core" }
+percent-encoding = "2"
+serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

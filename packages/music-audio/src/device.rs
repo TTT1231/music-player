@@ -134,16 +134,15 @@ impl DeviceOutput {
         Ok(duration)
     }
     pub fn play(&self) {
+        let _gate = self.event_gate.lock();
         let mut engine = self.engine.lock().unwrap_or_else(|e| e.into_inner());
         engine.play();
-        let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
-        state.playing = engine.is_playing() || (state.ended && state.frames > 0);
-        wake.notify_one();
+        resume_buffer(&self.shared, engine.is_playing());
     }
     pub fn pause(&self) {
+        let _gate = self.event_gate.lock();
         self.engine.lock().unwrap_or_else(|e| e.into_inner()).pause();
-        self.shared.0.lock().unwrap_or_else(|e| e.into_inner()).playing = false;
+        pause_buffer(&self.shared, &self.event_gate);
     }
     pub fn seek(&self, position: Duration) -> Result<(), AudioError> {
         let _gate = self.event_gate.lock();
@@ -215,11 +214,9 @@ fn produce(
             return;
         }
         if state.ended {
-            state.playing = false;
-            state.ended = false;
             let generation = state.generation;
             drop(state);
-            dispatch(&shared, &event_gate, &callback, generation, EngineEvent::Ended);
+            dispatch_end(&shared, &event_gate, &callback, generation);
             continue;
         }
         drop(state);
@@ -264,6 +261,31 @@ fn produce(
             dispatch(&shared, &event_gate, &callback, generation, error);
         }
     }
+}
+
+fn pause_buffer(shared: &Shared, gate: &EventGate) {
+    let _guard = gate.lock();
+    let mut state = shared.0.lock().unwrap_or_else(|e| e.into_inner());
+    state.playing = false;
+    state.generation = state.generation.wrapping_add(1);
+}
+
+fn resume_buffer(shared: &Shared, engine_playing: bool) {
+    let (lock, wake) = &**shared;
+    let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+    state.playing = engine_playing || state.ended;
+    wake.notify_one();
+}
+
+fn dispatch_end(shared: &Shared, gate: &EventGate, callback: &Callback, generation: u64) {
+    let _guard = gate.lock();
+    let mut state = shared.0.lock().unwrap_or_else(|e| e.into_inner());
+    if state.generation != generation || !state.playing || !state.ended || state.frames > 0 {
+        return;
+    }
+    state.playing = false;
+    drop(state);
+    (callback.lock().unwrap_or_else(|e| e.into_inner()))(EngineEvent::Ended);
 }
 
 fn dispatch(shared: &Shared, gate: &EventGate, callback: &Callback, generation: u64, event: EngineEvent) {
@@ -327,6 +349,43 @@ fn consume<T: cpal::Sample + FromSample<f32>>(state: &mut Buffer, output: &mut [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pause_invalidates_pending_end_and_resume_reissues_end() {
+        use std::sync::mpsc;
+        let shared: Shared = Arc::new((
+            Mutex::new(Buffer {
+                playing: true,
+                ended: true,
+                ..Buffer::default()
+            }),
+            Condvar::new(),
+        ));
+        let gate = Arc::new(parking_lot::ReentrantMutex::new(()));
+        let (tx, rx) = mpsc::channel();
+        let callback: Callback = Arc::new(Mutex::new(Box::new(move |event| {
+            tx.send(event).unwrap();
+        })));
+        let stale_generation = shared.0.lock().unwrap().generation;
+
+        pause_buffer(&shared, &gate);
+        resume_buffer(&shared, false);
+        dispatch_end(&shared, &gate, &callback, stale_generation);
+        assert!(rx.try_recv().is_err(), "暂停前排队的结束事件必须失效");
+        assert!(shared.0.lock().unwrap().ended, "暂停和恢复后仍应保留已结束状态");
+
+        let resumed_generation = shared.0.lock().unwrap().generation;
+        dispatch_end(&shared, &gate, &callback, resumed_generation);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), EngineEvent::Ended);
+        assert!(!shared.0.lock().unwrap().playing);
+
+        // 结束事件已送入上层队列、但上层先处理了暂停时，恢复仍须再次投递。
+        pause_buffer(&shared, &gate);
+        resume_buffer(&shared, false);
+        let retried_generation = shared.0.lock().unwrap().generation;
+        dispatch_end(&shared, &gate, &callback, retried_generation);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), EngineEvent::Ended);
+    }
 
     #[test]
     fn engine_does_not_play_before_a_file_is_loaded() {

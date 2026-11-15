@@ -48,6 +48,9 @@ pub struct Track {
     pub audio: String,
     /// 配对到的 `.lrc` 位置。
     pub lyrics: Option<String>,
+    /// 时长（毫秒），未探测时为空；旧会话也按未探测处理。
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
 }
 
 /// 一次导入的结果，界面据此显示“已导入 N 首，M 首有歌词”。
@@ -132,6 +135,15 @@ impl Playlist {
         self.tracks.iter().find(|t| &t.id == id)
     }
 
+    /// 更新已存在歌曲的时长；歌曲不存在时返回 false。
+    pub fn set_duration(&mut self, id: &TrackId, duration_ms: u64) -> bool {
+        let Some(track) = self.tracks.iter_mut().find(|track| &track.id == id) else {
+            return false;
+        };
+        track.duration_ms = Some(duration_ms);
+        true
+    }
+
     pub fn position(&self, id: &TrackId) -> Option<usize> {
         self.tracks.iter().position(|t| &t.id == id)
     }
@@ -164,6 +176,7 @@ impl Playlist {
                 audio: file.location,
                 // 这次没带歌词时保留之前配对的歌词
                 lyrics: lyrics.get(&key).map(|l| l.location.clone()).or(previous_lyrics),
+                duration_ms: None,
             };
             match self.position(&id) {
                 Some(pos) => self.tracks[pos] = track,
