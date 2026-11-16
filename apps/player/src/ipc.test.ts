@@ -1,7 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { afterEach, expect, test, vi } from "vitest";
-import { commands, listenNotice, listenPosition, listenState } from "./ipc";
+import { commands, listenNotice, listenPlaybackEvents, listenPosition, listenState } from "./ipc";
 
 afterEach(clearMocks);
 
@@ -30,6 +30,15 @@ test("typed commands send the documented names and parameters", async () => {
     await commands.moveTrack(0, 2);
     await commands.getLyrics("track");
     await commands.toggleDesktopLyrics();
+    await commands.notifyState({
+        playing: true,
+        title: "t",
+        artist: "a",
+        durationMs: 180_000,
+        positionMs: 5_000,
+        rate: 1.2,
+    });
+    await commands.startPlaybackEvents();
     expect(calls).toEqual([
         ["app_info", {}],
         ["get_state", {}],
@@ -50,6 +59,11 @@ test("typed commands send the documented names and parameters", async () => {
         ["move_track", { from: 0, to: 2 }],
         ["get_lyrics", { id: "track" }],
         ["toggle_desktop_lyrics", {}],
+        [
+            "plugin:playback|notify_state",
+            { playing: true, title: "t", artist: "a", durationMs: 180_000, positionMs: 5_000, rate: 1.2 },
+        ],
+        ["plugin:playback|start_events", {}],
     ]);
 });
 
@@ -67,7 +81,12 @@ test("event listeners expose the Rust payload and can be removed", async () => {
     expect(onState).toHaveBeenCalledWith({ currentId: "song" });
     expect(onPosition).toHaveBeenCalledWith({ ms: 1250 });
     expect(onNotice).toHaveBeenCalledWith({ kind: "unreadable", title: "song" });
+    const offPlayback = await listenPlaybackEvents(event => {
+        expect(event).toEqual({ kind: "pause", reason: "noisy" });
+    });
+    await emit("playback://event", { kind: "pause", reason: "noisy" });
     offState();
     offPosition();
     offNotice();
+    offPlayback();
 });

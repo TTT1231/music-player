@@ -18,10 +18,15 @@ percent-encoding = "2"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-playback = { path = "../../../packages/tauri-plugin-playback" }
+
+# 系统文件对话框只在桌面使用；安卓的文件选择由 tauri-plugin-playback 完成
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 serde_json.workspace = true
+tauri = { version = "2", features = ["test"] }
 tempfile.workspace = true
 
 [features]

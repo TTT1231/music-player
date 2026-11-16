@@ -2,7 +2,7 @@
 #[allow(dead_code)]
 mod controller;
 
-use controller::{AudioBackend, Controller, ControllerEvent};
+use controller::{AudioBackend, Controller, ControllerEvent, path_resolver};
 use music_core::PlayMode;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
@@ -10,10 +10,10 @@ use std::time::Duration;
 
 #[derive(Default)]
 struct BackendState {
-    loaded: Vec<PathBuf>,
+    loaded: Vec<String>,
     playing: bool,
     position: Duration,
-    unreadable: Vec<PathBuf>,
+    unreadable: Vec<String>,
     unavailable: bool,
 }
 struct FakeBackend(Arc<Mutex<BackendState>>);
@@ -21,10 +21,10 @@ impl AudioBackend for FakeBackend {
     fn available(&self) -> bool {
         !self.0.lock().unwrap().unavailable
     }
-    fn load(&mut self, path: &Path) -> Result<Duration, String> {
+    fn load(&mut self, location: &str) -> Result<Duration, String> {
         let mut state = self.0.lock().unwrap();
-        state.loaded.push(path.to_owned());
-        if state.unreadable.contains(&path.to_owned()) {
+        state.loaded.push(location.to_owned());
+        if state.unreadable.contains(&location.to_owned()) {
             Err("unreadable".into())
         } else {
             Ok(Duration::from_secs(3))
@@ -68,9 +68,27 @@ fn setup(path: &Path) -> (Controller<FakeBackend>, Arc<Mutex<BackendState>>) {
         path.to_owned(),
         FakeBackend(backend.clone()),
         Arc::new(AtomicU64::new(0)),
+        path_resolver(),
     )
     .unwrap();
     (controller, backend)
+}
+
+#[test]
+fn content_uris_use_display_names_for_titles_and_lyric_pairing() {
+    // 安卓内容 URI 不含文件名：歌名和歌词配对必须来自系统文件选择器给出的显示名
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _backend) = setup(&dir.path().join("session.json"));
+    let file = |id: &str, name: &str| music_core::FileRef::new(format!("content://media/document/{id}"), name);
+    let report = controller.import_files(vec![
+        file("audio%3A12", "歌手 - 歌名.mp3"),
+        file("document%3A40", "歌手 - 歌名.lrc"),
+    ]);
+    assert_eq!(report.added.len(), 1);
+    assert_eq!(report.with_lyrics, 1);
+    let track = &controller.state().tracks[0];
+    assert_eq!((track.title.as_str(), track.artist.as_str()), ("歌名", "歌手"));
+    assert!(track.has_lyrics);
 }
 
 #[test]
@@ -94,7 +112,7 @@ fn skips_unreadable_files_and_stops_after_each_track_fails() {
     let (mut controller, backend) = setup(&dir.path().join("session.json"));
     let paths = paths();
     let report = controller.import_paths(&paths).unwrap();
-    backend.lock().unwrap().unreadable = paths.iter().map(PathBuf::from).collect();
+    backend.lock().unwrap().unreadable = paths.iter().map(String::as_str).map(str::to_owned).collect();
     controller.play_track(&report.added[0]);
     let state = controller.state();
     assert!(!state.playing);
@@ -165,7 +183,10 @@ fn replacing_playing_track_reloads_new_file() {
     controller
         .import_paths(&[replacement.to_string_lossy().into_owned()])
         .unwrap();
-    assert_eq!(backend.lock().unwrap().loaded.last(), Some(&replacement));
+    assert_eq!(
+        backend.lock().unwrap().loaded.last(),
+        Some(&replacement.to_string_lossy().into_owned())
+    );
     assert!(controller.state().playing);
 }
 
@@ -217,7 +238,7 @@ fn seeking_unreadable_restored_track_persists_skipped_track() {
     controller.save().unwrap();
     drop(controller);
     let (mut restored, backend) = setup(&session);
-    backend.lock().unwrap().unreadable.push(PathBuf::from(&paths[0]));
+    backend.lock().unwrap().unreadable.push(paths[0].clone());
     restored.seek(1_000).unwrap();
     assert_eq!(restored.state().current_id.as_deref(), Some(report.added[1].as_str()));
     drop(restored);
@@ -238,6 +259,7 @@ fn pause_invalidates_queued_device_events_even_after_resume() {
         dir.path().join("session.json"),
         FakeBackend(backend),
         generation.clone(),
+        path_resolver(),
     )
     .unwrap();
     let report = controller.import_paths(&paths()).unwrap();
@@ -293,4 +315,23 @@ fn cover_url_uses_the_platforms_tauri_protocol_origin() {
         controller::cover_url_for("歌曲 %", false),
         "cover://localhost/%E6%AD%8C%E6%9B%B2%20%25"
     );
+}
+
+#[test]
+fn imports_saf_uris_by_treating_location_verbatim() {
+    // 安卓 SAF：位置是 content:// URI 而非路径；按原样记录，歌名从末段文件名解析
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, backend) = setup(&dir.path().join("session.json"));
+    // 外置存储 provider 的 document id 是未编码的相对路径（SAF 常见形式），末段即文件名
+    let uri =
+        "content://com.android.externalstorage.documents/document/primary:Music/Test Artist - Track Two.ogg".to_owned();
+    let report = controller.import_paths(std::slice::from_ref(&uri)).unwrap();
+    assert_eq!(report.added.len(), 1, "URI 应作为一首歌导入");
+    let state = controller.state();
+    assert_eq!(state.tracks.len(), 1);
+    assert_eq!(state.tracks[0].title, "Track Two");
+    assert_eq!(state.tracks[0].artist, "Test Artist");
+    // 位置按原样交给音频后端（URI 透明传递）
+    controller.play_track(&report.added[0]);
+    assert_eq!(backend.lock().unwrap().loaded, vec![uri]);
 }

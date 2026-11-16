@@ -9,8 +9,8 @@
     width: var(--qw, 414px);
     padding-top: 44px;
     color: #fff;
-    background: rgba(0, 0, 0, 0.18);
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    /* 与舞台同一背景，不另起一块深色面板 */
+    background: none;
     transition:
         transform 0.5s cubic-bezier(0.22, 0.8, 0.24, 1),
         opacity 0.4s;
@@ -147,17 +147,49 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    /* 滚动条用 ::-webkit-scrollbar 定制（细、无上下箭头）；设置 scrollbar-width 会退回带箭头的系统样式 */
+    /* 切换列表样式时由脚本保持位置，不让浏览器的滚动锚定再调整一次 */
+    overflow-anchor: none;
+    /* 两种样式各用一个动画名：切换时重新播放，短暂淡入盖住行高变化 */
+    animation: q-list-in-covers 0.22s ease-out;
+}
+.q-list.compact {
+    animation-name: q-list-in-compact;
+}
+@keyframes q-list-in-covers {
+    from {
+        opacity: 0.35;
+    }
+}
+@keyframes q-list-in-compact {
+    from {
+        opacity: 0.35;
+    }
+}
+.q-list::-webkit-scrollbar {
+    width: 6px;
+}
+.q-list::-webkit-scrollbar-button {
+    display: none;
+}
+.q-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.q-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
+}
+.q-list:hover::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
 }
 .q-row {
     position: relative;
     user-select: none;
     display: grid;
-    grid-template-columns: 34px 56px minmax(0, 1fr) 48px;
+    grid-template-columns: 34px 48px minmax(0, 1fr) 48px;
     align-items: center;
     gap: 12px;
-    height: 76px;
+    height: 64px;
     padding: 0 22px 0 14px;
     cursor: default;
     transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -242,7 +274,7 @@
     min-width: 0;
 }
 .q-row .t {
-    font-size: 15px;
+    font-size: 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -251,8 +283,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 4px;
-    font-size: 13px;
+    margin-top: 3px;
+    font-size: 12px;
     color: rgba(255, 255, 255, 0.5);
     white-space: nowrap;
     overflow: hidden;
@@ -323,9 +355,12 @@
 .q-row.on .a {
     color: rgba(255, 255, 255, 0.85);
 }
+.q-list.compact .cv {
+    display: none;
+}
 .q-list.compact .q-row {
     grid-template-columns: 34px minmax(0, 1fr) 48px;
-    height: 49px;
+    height: 40px;
 }
 .q-list.compact .q-row .n {
     position: relative;
@@ -341,10 +376,10 @@
 .q-list.compact .q-row.on .num {
     visibility: hidden;
 }
+/* 匹配处只换成柔和的蓝色，不加粗，不打断歌名的阅读 */
 .q-row mark {
     background: none;
-    color: #ffd166;
-    font-weight: 600;
+    color: #6cb6ff;
 }
 .q-empty {
     padding: 40px 22px;
@@ -356,10 +391,26 @@
     outline: 2px solid var(--moon, #d6e2ea);
     outline-offset: -2px;
 }
+/* 搜索框和工具按钮的焦点用底色表示，不画白框 */
+.q-search input:focus-visible,
+.q-btn:focus-visible,
+.q-cancel:focus-visible,
+.q-clear:focus-visible {
+    outline: none;
+}
+.q-search:focus-within {
+    background: rgba(255, 255, 255, 0.14);
+}
+.q-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+}
 @media (prefers-reduced-motion: reduce) {
     .queue,
     .q-row {
         transition: none;
+    }
+    .q-list {
+        animation: none;
     }
     .q-row.dragging {
         scale: 1;

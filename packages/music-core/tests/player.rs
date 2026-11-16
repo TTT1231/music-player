@@ -206,8 +206,10 @@ fn rate_is_clamped_and_rounded_to_one_decimal() {
 #[test]
 fn pitch_and_volume_are_clamped() {
     let mut p = Player::new(playlist(&[]));
-    assert_eq!(p.set_pitch(12), *PITCH_RANGE.end());
-    assert_eq!(p.set_pitch(-12), *PITCH_RANGE.start());
+    // 升降调 ±5 档，与倍速 0.5–1.5 每侧 5 档对应
+    assert_eq!(PITCH_RANGE, -5..=5);
+    assert_eq!(p.set_pitch(12), 5);
+    assert_eq!(p.set_pitch(-12), -5);
     p.set_volume(1.5);
     assert_eq!(p.volume(), 1.0);
     p.set_volume(-1.0);

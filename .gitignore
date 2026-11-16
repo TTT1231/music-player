@@ -16,3 +16,6 @@ target/
 *.log
 .DS_Store
 Thumbs.db
+
+# e2e 本地工具，不进 git：msedgedriver 二进制
+/.tools/

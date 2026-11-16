@@ -1,12 +1,14 @@
 {
     "oxc.typeAware": true,
     "files.exclude": {
-        "*.tsbuildinfo": true
+        "*.tsbuildinfo": true,
+        ".tools": true,
+        "**/node_modules": true
     },
     "explorer.fileNesting.enabled": true, // 启用文件嵌套功能
     "explorer.fileNesting.expand": false, // 默认折叠嵌套文件（不展开）
     "explorer.fileNesting.patterns": {
-        "package.json": "pnpm-lock.yaml,.gitignore,.gitattributes,pnpm-workspace.yaml,README.md",
+        "package.json": "pnpm-lock.yaml,demo.png,.gitignore,.gitattributes,pnpm-workspace.yaml,README.md",
         ".oxlintrc.json": ".oxfmtrc.json,lefthook.yml",
         "Cargo.toml": "Cargo.lock,rustfmt.toml"
     }

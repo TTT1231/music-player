@@ -12,12 +12,14 @@
 | 某个项目的类型           | `pnpm --filter <包名> typecheck`               |
 | 分支影响范围内的快速测试 | `pnpm test`                                    |
 | 分支影响范围内的类型检查 | `pnpm typecheck`                               |
+| 桌面端 e2e               | `pnpm --filter @music/player test:e2e:desktop` |
+| 安装包体积与网络权限     | `pnpm check:build`                             |
 | 仓库脚本                 | `pnpm test:scripts`                            |
 
-例如修改请求客户端时：
+例如修改播放队列组件时：
 
 ```sh
-pnpm --filter @music/request test src/request-client/request-client.test.ts
+pnpm --filter @music/player test src/layouts/QueuePanel.test.tsx
 ```
 
 根目录 `test` 和 `typecheck` 的范围包含整个分支相对基线的改动，以及暂存、未暂存、未跟踪文件。加 `--dry` 可预览选中的任务。尚无提交或找不到默认分支时，会提示并回退到所有已配置的对应快速检查。
@@ -26,7 +28,7 @@ pnpm --filter @music/request test src/request-client/request-client.test.ts
 
 ## Rust 包与测试素材
 
-Rust 包（`packages/music-core`、`packages/music-audio`）各带一个只含脚本的 `package.json`：`test` 即 `cargo test -p <crate>`，`typecheck` 即 `cargo check -p <crate> --tests`，所以上表命令和 `pnpm test` 同样覆盖 Rust。追加的参数直接交给 cargo：
+Rust 包（`packages/music-core`、`packages/music-audio`、`packages/tauri-plugin-playback`）各带一个只含脚本的 `package.json`：`test` 即 `cargo test -p <crate>`，`typecheck` 即 `cargo check -p <crate> --tests`，所以上表命令和 `pnpm test` 同样覆盖 Rust。追加的参数直接交给 cargo：
 
 ```sh
 pnpm --filter @music/core test --test player shuffle
@@ -34,14 +36,50 @@ pnpm --filter @music/core test --test player shuffle
 
 想一次看到所有失败的测试文件时加 `--no-fail-fast`。Rust 代码用 `cargo fmt --all` 格式化（[rustfmt.toml](../rustfmt.toml)）。
 
-播放器应用的组件测试和类型检查：
+播放器应用的测试和类型检查：
 
 ```sh
 pnpm --filter @music/player test
 pnpm --filter @music/player typecheck
 ```
 
-应用类型检查包括前端 TypeScript 和 Tauri Rust 外壳。Windows 本地开发需要 Rust MSVC 工具链和 WebView2。
+不带参数的 `test` 依次运行组件测试和 Tauri 外壳的 Rust 测试（`apps/player/src-tauri/tests`）；带测试文件或 `-t` 时只运行对应的组件测试。类型检查同样包括前端 TypeScript 和 Rust 外壳。Windows 本地开发需要 Rust MSVC 工具链和 WebView2。
+
+## 桌面端 e2e 与构建检查
+
+桌面 e2e 用 [WebdriverIO](https://webdriver.io) 通过 `tauri-driver` 驱动真实窗口（`apps/player/e2e/desktop/`）：
+
+```sh
+pnpm --filter @music/player test:e2e:desktop
+```
+
+环境前提（Windows）：
+
+- `tauri-driver`：`cargo install tauri-driver --locked`；
+- `msedgedriver`：与本机 Edge/WebView2 **同版本**，从 `https://msedgedriver.microsoft.com/<版本>/edgedriver_win64.zip` 下载，
+  放到 `apps/player/../.tools/msedgedriver.exe`（仓库外即可），或用 `MSEDGEDRIVER_PATH` 指定路径；
+- 被测二进制：`pnpm --filter @music/player exec tauri build --debug`（内嵌前端的调试包；`tauri dev` 产物依赖未启动的 dev server，不能用于 e2e）；
+- 需要可用的音频输出设备（播放相关用例）；Windows 上会弹出被测应用窗口，属正常现象。
+
+每个用例开始时会清空 `target/e2e-data`（运行级临时数据目录，经 `MUSIC_DATA_DIR` 注入被测应用）并重建会话，用例之间互不影响。导入通过 WebDriver 在页面内调用应用自身的 `import_paths` 命令完成，参数为 `fixtures/music/` 下的文件。全部用例通过即成功；失败时 WDIO 输出会定位到具体用例。
+
+构建检查检查安装包体积与网络能力：
+
+```sh
+pnpm --filter @music/player exec tauri build   # 生成安装包
+pnpm check:build
+```
+
+`check:build` 断言 NSIS 安装包不超过 15 MB、Tauri CSP 与 capabilities 没有开放网络能力，并断言安卓 release 变体通过清单合并移除了 INTERNET 权限（`gen/android/app/src/release/AndroidManifest.xml`；开发模式的 INTERNET 保留）。
+
+安卓构建：需要 JDK 17（`JAVA_HOME`）、Android SDK（`ANDROID_HOME`）和 NDK 27.2（`NDK_HOME`，`sdkmanager "ndk;27.2.12479018"`）。
+
+```sh
+pnpm --filter @music/player exec tauri android build --debug --target aarch64
+adb install -r apps/player/src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk
+```
+
+Windows 需要开启[开发者模式](https://learn.microsoft.com/windows/apps/get-started/enable-your-device-for-development)以允许符号链接（tauri 把 .so 链接进 jniLibs）。Gradle 依赖下载走本地代理时，给 gradle 传 `-Dhttps.proxyHost=… -Dhttps.proxyPort=…`。安卓端的文件选择、后台与锁屏播放、通知栏控制和音频焦点目前在真机上手动验证。
 
 测试素材在 `fixtures/music/`，由 [生成脚本](../scripts/gen-fixtures.mjs) 产出，需要 PATH 中有带 libmp3lame、libvorbis 的 ffmpeg：
 
@@ -53,12 +91,14 @@ node scripts/gen-fixtures.mjs
 
 ## CI 与本地复现
 
-[CI](../.github/workflows/ci.yml) 在 Windows 上使用根 [package.json](../package.json) 中的两个入口：
+[CI](../.github/workflows/ci.yml) 在 Windows 上使用根 [package.json](../package.json) 中的以下入口：
 
-| 命令                   | 检查范围                              |
-| ---------------------- | ------------------------------------- |
-| `pnpm check:ci:static` | 全量 lint、所有包及仓库脚本的类型检查 |
-| `pnpm check:ci:unit`   | 所有包的快速测试、仓库脚本测试        |
+| 命令                        | 检查范围                                |
+| --------------------------- | --------------------------------------- |
+| `pnpm check:ci:static`      | 全量 lint、所有包及仓库脚本的类型检查   |
+| `pnpm check:ci:unit`        | 所有包的快速测试、仓库脚本测试          |
+| `pnpm check:ci:e2e-desktop` | 桌面端 e2e（构建调试包后运行）          |
+| `pnpm check:ci:build`       | 构建 release 安装包并运行 `check:build` |
 
 这些入口不按本地 Git 改动缩小范围，Turbo 仍可复用缓存。
 
@@ -68,10 +108,10 @@ node scripts/gen-fixtures.mjs
 
 每个包维护自己的 `package.json` 脚本，根命令会自动发现：
 
-| 包内脚本    | 内容                                                       |
-| ----------- | ---------------------------------------------------------- |
-| `test`      | 快速单测／组件测试；不启动真实数据库、外部服务或完整应用栈 |
-| `typecheck` | TypeScript 项目的完整类型检查，可使用编译器增量缓存        |
+| 包内脚本    | 内容                                                |
+| ----------- | --------------------------------------------------- |
+| `test`      | 快速单测／组件测试；不启动完整应用                  |
+| `typecheck` | TypeScript 项目的完整类型检查，可使用编译器增量缓存 |
 
 无测试的包不声明 `test`，不使用 `--passWithNoTests` 隐藏漏配。workspace 依赖写进包清单，包括使用的 `@music/tsconfig`，让消费者进入影响范围。
 
@@ -90,34 +130,9 @@ node scripts/gen-fixtures.mjs
 
 ## 新增测试层级
 
-按需新增以下包内命令：
+新增 e2e 等层级时：在所属包加脚本（如 `test:e2e:android`），在 `turbo.json` 加同名任务（e2e 设 `cache: false`），再添加对应的 `check:ci:*` 入口和 CI 步骤，并把运行命令写进本文。这些层级独立于普通 `test` 和 Git hooks。
 
-| 命令               | 验证对象                   | 典型触发                      |
-| ------------------ | -------------------------- | ----------------------------- |
-| `test:contract`    | API 请求、响应、错误格式   | 接口定义、DTO、客户端适配变化 |
-| `test:integration` | 服务与真实测试数据库       | SQL、事务、迁移、鉴权变化     |
-| `test:e2e`         | 浏览器／桌面端完整用户流程 | 关键流程、启动或打包变化      |
-
-新增时配置所属包脚本、`turbo.json` 中同名任务，再添加或扩展对应的 `check:ci:*` 入口和 CI 步骤。纯契约检查可缓存；数据库集成和 e2e 默认 `cache: false`，CI 提供独立测试环境。变量在任务 `env` 中声明，缺失必需环境应失败。
-
-例如集成测试的 CI 入口可命名为 `check:ci:integration`，调用 `turbo run test:integration`；本地按需运行 `pnpm --filter <包名> test:integration`。这些层级独立于普通 `test` 和 Git hooks。
-
-HTTP、IPC、OpenAPI、SQL 文件依赖不会自动变成包依赖。读取包外文件的任务，应在包级 `turbo.json` 中声明输入，例如：
-
-```json
-{
-    "extends": ["//"],
-    "tasks": {
-        "test:contract": {
-            "dependsOn": ["transit"],
-            "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/contracts/**"],
-            "outputs": []
-        }
-    }
-}
-```
-
-重写 `inputs` 时保留默认文件和该任务使用的共享配置；消费同一接口的应用分别声明依赖。自动筛选不能推断业务语义，修改事务、鉴权、IPC、应用入口时仍需选择相应集成或冒烟测试。
+读取包外文件的任务，在包级 `turbo.json` 的 `inputs` 中声明这些文件（保留 `$TURBO_DEFAULT$`），例如 Rust 包声明根目录的 `Cargo.toml`、`Cargo.lock` 和 `fixtures/music/**`。
 
 ## 范围与缓存
 

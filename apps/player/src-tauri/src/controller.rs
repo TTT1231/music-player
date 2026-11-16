@@ -1,8 +1,10 @@
 //! 播放状态控制器。音频设备和 Tauri 命令分别通过接口和事件接入。
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -16,11 +18,23 @@ use music_core::{
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Serialize;
 
+/** 把“位置”解析成可读文件：桌面是路径，安卓是 content:// URI（由插件打开文件描述符）。 */
+pub type LocationResolver = Arc<dyn Fn(&str) -> io::Result<(File, Option<String>)> + Send + Sync>;
+
+/** 桌面解析器：位置即路径。 */
+pub fn path_resolver() -> LocationResolver {
+    Arc::new(|location| {
+        let path = PathBuf::from(location);
+        let ext = path.extension().and_then(|ext| ext.to_str()).map(str::to_owned);
+        Ok((File::open(&path)?, ext))
+    })
+}
+
 pub trait AudioBackend {
     fn available(&self) -> bool {
         true
     }
-    fn load(&mut self, path: &Path) -> Result<Duration, String>;
+    fn load(&mut self, location: &str) -> Result<Duration, String>;
     fn play(&mut self);
     fn pause(&mut self);
     fn seek(&mut self, position: Duration) -> Result<(), String>;
@@ -31,8 +45,12 @@ pub trait AudioBackend {
 }
 
 impl AudioBackend for music_audio::DeviceOutput {
-    fn load(&mut self, path: &Path) -> Result<Duration, String> {
-        music_audio::DeviceOutput::load(self, path).map_err(|e| e.to_string())
+    fn load(&mut self, location: &str) -> Result<Duration, String> {
+        // 直连实现按路径解析（桌面测试路径）
+        let path = PathBuf::from(location);
+        let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        let ext = path.extension().and_then(|ext| ext.to_str());
+        self.load_file(file, ext).map_err(|e| e.to_string())
     }
     fn play(&mut self) {
         music_audio::DeviceOutput::play(self);
@@ -108,6 +126,7 @@ struct ProbeResult {
 pub struct Controller<B: AudioBackend> {
     player: Player,
     backend: B,
+    resolver: LocationResolver,
     loaded: Option<TrackId>,
     session_path: PathBuf,
     dirty_since: Option<Instant>,
@@ -120,26 +139,37 @@ pub struct Controller<B: AudioBackend> {
 }
 
 impl<B: AudioBackend> Controller<B> {
-    pub fn new(session_path: PathBuf, mut backend: B, generation: Arc<AtomicU64>) -> io::Result<Self> {
+    pub fn new(
+        session_path: PathBuf,
+        mut backend: B,
+        generation: Arc<AtomicU64>,
+        resolver: LocationResolver,
+    ) -> io::Result<Self> {
         let player = load_session(&session_path)?
             .map(Player::restore)
             .unwrap_or_else(|| Player::new(Playlist::new()));
         backend.set_volume(player.volume());
         let (jobs_tx, jobs_rx) = mpsc::channel::<ProbeJob>();
         let (results_tx, results_rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            while let Ok(job) = jobs_rx.recv() {
-                let duration_ms = music_audio::probe(Path::new(&job.location))
-                    .ok()
-                    .map(|info| millis(info.duration));
-                if results_tx.send(ProbeResult { job, duration_ms }).is_err() {
-                    break;
+        std::thread::spawn({
+            let resolver = Arc::clone(&resolver);
+            move || {
+                while let Ok(job) = jobs_rx.recv() {
+                    // 位置可能不是路径（安卓 URI），统一经解析器打开
+                    let duration_ms = (resolver)(&job.location)
+                        .and_then(|(file, ext)| music_audio::probe_file(file, ext.as_deref()).map_err(io::Error::other))
+                        .ok()
+                        .map(|info| millis(info.duration));
+                    if results_tx.send(ProbeResult { job, duration_ms }).is_err() {
+                        break;
+                    }
                 }
             }
         });
         let mut controller = Self {
             player,
             backend,
+            resolver,
             loaded: None,
             session_path,
             dirty_since: None,
@@ -202,6 +232,7 @@ impl<B: AudioBackend> Controller<B> {
             .get(&TrackId(id.to_owned()))
             .map(|track| PathBuf::from(&track.audio))
     }
+    /// 导入桌面路径：文件夹递归展开，文件名取自路径。
     pub fn import_paths(&mut self, paths: &[String]) -> io::Result<ImportResult> {
         let mut files = Vec::new();
         for value in paths {
@@ -212,6 +243,11 @@ impl<B: AudioBackend> Controller<B> {
                 files.push(FileRef::from_path(path));
             }
         }
+        Ok(self.import_files(files))
+    }
+
+    /// 导入已知位置和文件名的文件（安卓：内容 URI 本身不含文件名，由系统文件选择器提供）。
+    pub fn import_files(&mut self, files: Vec<FileRef>) -> ImportResult {
         let report = self.player.import(files);
         self.schedule_probes(report.added.clone());
         if let Some(id) = self.player.current().cloned()
@@ -224,12 +260,12 @@ impl<B: AudioBackend> Controller<B> {
         if !report.added.is_empty() || report.lyrics_attached > 0 {
             self.changed();
         }
-        Ok(ImportResult {
+        ImportResult {
             added: report.added.into_iter().map(|id| id.0).collect(),
             with_lyrics: report.with_lyrics,
             lyrics_attached: report.lyrics_attached,
             orphan_lyrics: report.orphan_lyrics,
-        })
+        }
     }
     pub fn play_track(&mut self, id: &str) {
         let step = self.player.play_track(&TrackId(id.to_owned()));
@@ -349,7 +385,10 @@ impl<B: AudioBackend> Controller<B> {
         else {
             return Ok(parse_lrc(""));
         };
-        Ok(parse_lrc(&decode_text(&std::fs::read(path)?)))
+        let (mut file, _) = (self.resolver)(path)?;
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut bytes)?;
+        Ok(parse_lrc(&decode_text(&bytes)))
     }
     pub fn on_ended(&mut self) {
         if !self.player.is_playing() {
@@ -430,7 +469,7 @@ impl<B: AudioBackend> Controller<B> {
                     let location = track.audio.clone();
                     let title = track.title.clone();
                     self.backend.pause();
-                    match self.backend.load(Path::new(&location)) {
+                    match self.backend.load(&location) {
                         Ok(duration) => {
                             self.generation.fetch_add(1, Ordering::SeqCst);
                             self.loaded = Some(id.clone());

@@ -8,7 +8,6 @@
     "author": "",
     "type": "module",
     "scripts": {
-        "postinstall": "pnpm -r run --if-present stub",
         "clean": "node scripts/clean.mjs",
         "typecheck": "tsx scripts/run-affected.ts typecheck",
         "typecheck:scripts": "tsc --project tsconfig.json",
@@ -16,7 +15,10 @@
         "test": "tsx scripts/run-affected.ts test",
         "test:scripts": "node --import tsx --test scripts/*.test.ts",
         "check:ci:static": "pnpm lint && turbo run typecheck typecheck:scripts",
-        "check:ci:unit": "turbo run test test:scripts"
+        "check:ci:unit": "turbo run test test:scripts",
+        "check:build": "node --import tsx scripts/check-build.ts",
+        "check:ci:e2e-desktop": "turbo run test:e2e:desktop",
+        "check:ci:build": "pnpm --filter @music/player exec tauri build && pnpm check:build"
     },
     "devDependencies": {
         "@music/tsconfig": "workspace:*",
@@ -25,7 +27,6 @@
         "oxfmt": "catalog:",
         "oxlint": "catalog:",
         "oxlint-tsgolint": "catalog:",
-        "tsdown": "catalog:",
         "tsx": "catalog:",
         "turbo": "catalog:",
         "typescript": "catalog:",

@@ -1,3 +1,4 @@
+import { onBackButtonPress } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
@@ -31,6 +32,14 @@ export type ImportResult = {
 };
 export type Lyrics = { lines: { timeMs: number; text: string }[] };
 export type Position = { ms: number };
+export type NotifyState = {
+    playing: boolean;
+    title: string | null;
+    artist: string | null;
+    durationMs: number | null;
+    positionMs: number;
+    rate: number;
+};
 export type Notice = { kind: "unreadable"; title: string };
 
 export const commands = {
@@ -53,7 +62,30 @@ export const commands = {
     moveTrack: (from: number, to: number) => invoke<void>("move_track", { from, to }),
     getLyrics: (id: string) => invoke<Lyrics>("get_lyrics", { id }),
     toggleDesktopLyrics: () => invoke<boolean>("toggle_desktop_lyrics"),
+    // 以下命令只在安卓有效（packages/tauri-plugin-playback），其他平台为空操作
+    /** 同步通知栏和锁屏卡片；进度由系统按位置、更新时间和倍速推算，只需在状态变化时调用 */
+    notifyState: (state: NotifyState) => invoke<void>("plugin:playback|notify_state", state),
+    startPlaybackEvents: () => invoke<void>("plugin:playback|start_events"),
+    /** 把应用退到后台（同按主页键）：音乐继续播放。系统返回键在首页时用它代替关闭应用 */
+    moveToBackground: () => invoke<void>("plugin:playback|move_to_background"),
 };
+
+/**
+ * 接管安卓系统返回键：注册期间不再执行默认的“关闭应用”（关闭会结束整个进程，音乐随之停止）。
+ * 返回取消注册的函数。
+ */
+export const onBackButton = async (handler: () => void): Promise<() => void> => {
+    const listener = await onBackButtonPress(() => handler());
+    return () => void listener.unregister();
+};
+
+/** 安卓原生事件（音频焦点丢失、耳机拔出、通知栏按钮）。 */
+export type PlaybackEvent =
+    | { kind: "pause"; reason: "focus" | "noisy" | "notification" }
+    | { kind: "command"; action: "toggle" | "next" | "prev" };
+
+export const listenPlaybackEvents = (handler: (event: PlaybackEvent) => void): Promise<UnlistenFn> =>
+    listen<PlaybackEvent>("playback://event", event => handler(event.payload));
 
 export const listenState = (handler: (state: PlayerState) => void): Promise<UnlistenFn> =>
     listen<PlayerState>("state", event => handler(event.payload));

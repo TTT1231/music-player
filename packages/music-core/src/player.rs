@@ -10,7 +10,7 @@ pub const RESTART_THRESHOLD: Duration = Duration::from_secs(3);
 /// 倍速范围，步长 0.1。
 pub const RATE_RANGE: RangeInclusive<f32> = 0.5..=1.5;
 /// 升降调范围（半音）。
-pub const PITCH_RANGE: RangeInclusive<i8> = -6..=6;
+pub const PITCH_RANGE: RangeInclusive<i8> = -5..=5;
 
 const DEFAULT_VOLUME: f32 = 0.8;
 const DEFAULT_SEED: u64 = 0x9E37_79B9_7F4A_7C15;

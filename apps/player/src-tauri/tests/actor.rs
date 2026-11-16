@@ -1,15 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use music_audio::EngineEvent;
 use music_player_shell_lib::actor::{Actor, Projection};
-use music_player_shell_lib::controller::AudioBackend;
+use music_player_shell_lib::controller::{AudioBackend, path_resolver};
 use music_player_shell_lib::ipc::{CoverStore, get_cover, get_cover_with, import_files};
 
 struct FakeAudio;
 impl AudioBackend for FakeAudio {
-    fn load(&mut self, _: &Path) -> Result<Duration, String> {
+    fn load(&mut self, _: &str) -> Result<Duration, String> {
         Ok(Duration::from_secs(3))
     }
     fn play(&mut self) {}
@@ -36,6 +36,7 @@ fn commands_run_on_the_actor_and_shutdown_persists_the_session() {
     let (events, received) = mpsc::channel();
     let actor = Actor::spawn(
         session.clone(),
+        path_resolver(),
         |_| Ok(FakeAudio),
         move |event| {
             events.send(event).unwrap();
@@ -77,6 +78,7 @@ fn queued_end_from_previous_song_does_not_advance_the_new_song() {
     let (callback_tx, callback_rx) = mpsc::channel();
     let actor = Actor::spawn(
         directory.path().join("session.json"),
+        path_resolver(),
         move |callback| {
             callback_tx.send(callback).unwrap();
             Ok(FakeAudio)
@@ -118,7 +120,13 @@ fn importing_a_replacement_invalidates_cached_cover_even_at_the_same_path() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../fixtures/music");
     let path = directory.path().join("song.mp3");
     std::fs::copy(fixtures.join("Test Artist、Guest - Track One (Live).mp3"), &path).unwrap();
-    let actor = Actor::spawn(directory.path().join("session.json"), |_| Ok(FakeAudio), |_| {}).unwrap();
+    let actor = Actor::spawn(
+        directory.path().join("session.json"),
+        path_resolver(),
+        |_| Ok(FakeAudio),
+        |_| {},
+    )
+    .unwrap();
     let covers = CoverStore::default();
     let paths = vec![path.to_string_lossy().into_owned()];
     let id = import_files(&actor, &covers, paths.clone()).unwrap().added.remove(0);
@@ -140,7 +148,15 @@ fn slow_cover_probe_does_not_block_import_or_restore_an_old_cover() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../fixtures/music");
     let path = directory.path().join("song.mp3");
     std::fs::copy(fixtures.join("Test Artist、Guest - Track One (Live).mp3"), &path).unwrap();
-    let actor = Arc::new(Actor::spawn(directory.path().join("session.json"), |_| Ok(FakeAudio), |_| {}).unwrap());
+    let actor = Arc::new(
+        Actor::spawn(
+            directory.path().join("session.json"),
+            path_resolver(),
+            |_| Ok(FakeAudio),
+            |_| {},
+        )
+        .unwrap(),
+    );
     let covers = Arc::new(CoverStore::default());
     let paths = vec![path.to_string_lossy().into_owned()];
     let id = import_files(&actor, &covers, paths.clone()).unwrap().added.remove(0);

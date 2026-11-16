@@ -33,6 +33,10 @@
         "//#typecheck:scripts": {
             "inputs": ["scripts/**", "tsconfig.json", "internal/tsconfig/**", "vitest.unit.config.ts"],
             "outputs": []
+        },
+        "test:e2e:desktop": {
+            "cache": false,
+            "outputs": []
         }
     }
 }

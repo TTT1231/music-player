@@ -48,6 +48,9 @@ const defaultClock: FrameClock = {
 export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: FrameClock = defaultClock) {
     let snapshot: PlayerSnapshot = { state: null, platform: null, notice: null, error: null };
     const listeners = new Set<() => void>();
+    // 进度按帧插值，只通知订阅进度的组件；整棵界面只在真实状态变化时重渲染
+    const positionListeners = new Set<() => void>();
+    let position = 0;
     let active = false;
     let generation = 0;
     let stateRevision = 0;
@@ -65,15 +68,20 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
         if (frame !== null) clock.cancel(frame);
         frame = null;
     };
+    const publishPosition = (value: number) => {
+        if (value === position) return;
+        position = value;
+        positionListeners.forEach(listener => listener());
+    };
     const schedule = () => {
         if (!active || !snapshot.state?.playing || frame !== null) return;
         frame = clock.request(() => {
             frame = null;
             const state = snapshot.state;
             if (!active || !state?.playing) return;
-            const position = Math.max(0, baseMs + Math.max(0, clock.now() - baseTime) * state.rate);
-            const positionMs = state.durationMs === null ? position : Math.min(position, state.durationMs);
-            if (positionMs !== state.positionMs) publish({ state: { ...state, positionMs } });
+            const estimate = Math.max(0, baseMs + Math.max(0, clock.now() - baseTime) * state.rate);
+            const positionMs = state.durationMs === null ? estimate : Math.min(estimate, state.durationMs);
+            publishPosition(positionMs);
             if (state.durationMs === null || positionMs < state.durationMs) schedule();
         });
     };
@@ -83,6 +91,7 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
         baseMs = state.positionMs;
         baseTime = clock.now();
         publish({ state });
+        publishPosition(state.positionMs);
         schedule();
     };
     const receivePosition = ({ ms }: Position) => {
@@ -92,7 +101,7 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
         cancelFrame();
         baseMs = Math.max(0, state.durationMs === null ? ms : Math.min(ms, state.durationMs));
         baseTime = clock.now();
-        publish({ state: { ...state, positionMs: baseMs } });
+        publishPosition(baseMs);
         schedule();
     };
     const stop = () => {
@@ -156,6 +165,12 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
             listeners.add(listener);
             return () => listeners.delete(listener);
         },
+        /** 当前播放进度（毫秒），播放时按帧插值。 */
+        getPosition: () => position,
+        subscribePosition(listener: () => void) {
+            positionListeners.add(listener);
+            return () => positionListeners.delete(listener);
+        },
         dismissNotice() {
             if (snapshot.notice) publish({ notice: null });
         },
@@ -163,6 +178,15 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
 }
 
 export const playerStore = createPlayerStore();
+/** 播放器状态；其中 positionMs 只在状态事件时更新，实时进度用 usePlaybackPosition。 */
 export function usePlayerState(): PlayerSnapshot {
     return useSyncExternalStore(playerStore.subscribe, playerStore.getSnapshot, playerStore.getSnapshot);
+}
+/** 实时播放进度（毫秒）。只在进度条、时间、歌词这类小组件里调用，避免整个布局按帧重渲染。 */
+export function usePlaybackPosition(): number {
+    return useSyncExternalStore(playerStore.subscribePosition, playerStore.getPosition, playerStore.getPosition);
+}
+export function usePlatform(): Platform | null {
+    const platform = () => playerStore.getSnapshot().platform;
+    return useSyncExternalStore(playerStore.subscribe, platform, platform);
 }

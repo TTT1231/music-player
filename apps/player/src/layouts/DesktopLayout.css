@@ -9,7 +9,7 @@
     --muted: #5b6764;
     --cobalt: #2440b8;
     height: 100%;
-    min-width: 1024px;
+    /* 不设最小宽度：最小窗口尺寸由 tauri.conf.json 限定；无边框窗口的可用宽度略小于该值，再设会出现水平滚动条 */
     overflow: hidden;
     display: grid;
     grid-template-rows: minmax(0, 1fr) 76px;
@@ -181,7 +181,8 @@
 .desktop-bar {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(420px, 560px) minmax(0, 1fr);
+    /* 中间按控制按钮的宽度，两侧平分剩余空间：控制居中，左侧歌名有足够宽度 */
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 32px;
     padding: 0 24px;
@@ -235,7 +236,9 @@
     align-items: center;
     gap: 18px;
 }
-.desktop-controls button {
+/* 只作用于底栏的控制按钮本身：弹层（播放模式、音效）也在 .desktop-controls 里，不能被改成圆形网格 */
+.desktop-controls > button,
+.desktop-control-wrap > button {
     display: grid;
     place-items: center;
     border-radius: 50%;
@@ -244,7 +247,8 @@
         color 0.15s,
         transform 0.1s;
 }
-.desktop-controls button:active {
+.desktop-controls > button:active,
+.desktop-control-wrap > button:active {
     transform: scale(0.94);
 }
 .desktop-control-wrap {
@@ -340,11 +344,20 @@
     line-height: 1;
     font-weight: 400;
 }
-.desktop-rate {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--accent);
-    padding: 0 4px;
+/* 升降调/倍速：竖排两点 + 右上角倍速角标，与手机播放页一致 */
+.desktop-tune {
+    position: relative;
+}
+.desktop-tune .desktop-icon {
+    stroke-width: 3.4;
+}
+.desktop-tune sup {
+    position: absolute;
+    left: 21px;
+    top: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
 }
 
 /* 弹出层（白底卡片），相对触发按钮居中；--pop-shift 由脚本设置，让弹层不超出底栏 */
@@ -432,7 +445,8 @@
     .desktop-background {
         transition: none;
     }
-    .desktop-controls button,
+    .desktop-controls > button,
+    .desktop-control-wrap > button,
     .desktop-side-button {
         transition: none;
     }

@@ -14,9 +14,14 @@ use crate::{AudioError, Cover, MediaInfo, Pcm};
 /// 打开文件并探测格式；文件打不开是 `Io`，格式不认识是 `Unsupported`。
 fn open(path: &Path) -> Result<Box<dyn FormatReader>, AudioError> {
     let file = File::open(path).map_err(AudioError::Io)?;
+    open_source(file, path.extension().and_then(|ext| ext.to_str()))
+}
+
+/// 从已打开的文件探测格式（安卓会传文件描述符打开的 `File`）。
+fn open_source(file: File, ext_hint: Option<&str>) -> Result<Box<dyn FormatReader>, AudioError> {
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = ext_hint {
         hint.with_extension(ext);
     }
     symphonia::default::get_probe()
@@ -83,7 +88,13 @@ pub fn decode_file(path: &Path) -> Result<Pcm, AudioError> {
 
 /// 读取时长和内嵌封面（mp3 的 ID3 图片帧，ogg 的 METADATA_BLOCK_PICTURE）。
 pub fn probe(path: &Path) -> Result<MediaInfo, AudioError> {
-    let mut format = open(path)?;
+    let file = File::open(path).map_err(AudioError::Io)?;
+    probe_file(file, path.extension().and_then(|ext| ext.to_str()))
+}
+
+/// `probe` 的文件版本；扩展名作为格式提示（安卓的 URI 没有直接路径）。
+pub fn probe_file(file: File, ext_hint: Option<&str>) -> Result<MediaInfo, AudioError> {
+    let mut format = open_source(file, ext_hint)?;
     let cover = find_cover(format.as_mut());
 
     let track = format.default_track(TrackType::Audio).ok_or(AudioError::Unsupported)?;
@@ -95,9 +106,41 @@ pub fn probe(path: &Path) -> Result<MediaInfo, AudioError> {
     let duration = match (track.num_frames, sample_rate) {
         (Some(frames), Some(rate)) if rate > 0 => Duration::from_secs_f64(frames as f64 / rate as f64),
         // 容器没有记录总帧数时，解码一遍得到准确时长
-        _ => decode_file(path)?.duration(),
+        _ => {
+            let (track_id, mut decoder) = audio_decoder(format.as_ref())?;
+            decode_duration(format.as_mut(), track_id, decoder.as_mut())?
+        }
     };
     Ok(MediaInfo { duration, cover })
+}
+
+/// 解码整条流只为了得到准确时长（容器没有记录总帧数时的兜底）。
+fn decode_duration(
+    format: &mut dyn FormatReader,
+    track_id: u32,
+    decoder: &mut dyn AudioDecoder,
+) -> Result<Duration, AudioError> {
+    let mut frames = 0u64;
+    loop {
+        let packet = match format.next_packet() {
+            Ok(Some(packet)) => packet,
+            Ok(None) | Err(SymphoniaError::ResetRequired) | Err(SymphoniaError::IoError(_)) => break,
+            Err(e) => return Err(AudioError::Decode(e.to_string())),
+        };
+        if packet.track_id != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(buffer) => frames += buffer.frames() as u64,
+            Err(SymphoniaError::DecodeError(_)) | Err(SymphoniaError::IoError(_)) => continue,
+            Err(e) => return Err(AudioError::Decode(e.to_string())),
+        }
+    }
+    let rate = decoder.codec_params().sample_rate.unwrap_or(0);
+    if rate == 0 {
+        return Err(AudioError::Unsupported);
+    }
+    Ok(Duration::from_secs_f64(frames as f64 / rate as f64))
 }
 
 /// 在全部元数据版本里找封面：优先正面封面，其次第一张图片。

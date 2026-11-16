@@ -1,12 +1,11 @@
 //! 输出设备不可用时保留曲库能力，并向播放命令报告错误。
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use music_audio::{DeviceOutput, EngineEvent};
 
-use crate::controller::AudioBackend;
+use crate::controller::{AudioBackend, LocationResolver};
 
 #[derive(Clone, Default)]
 pub struct AudioAvailability(Arc<Mutex<Option<String>>>);
@@ -28,15 +27,21 @@ pub struct DeviceBackend {
     output: Option<DeviceOutput>,
     error: Option<String>,
     availability: AudioAvailability,
+    resolver: LocationResolver,
 }
 
 impl DeviceBackend {
-    pub fn open(callback: impl FnMut(EngineEvent) + Send + 'static, availability: AudioAvailability) -> Self {
+    pub fn open(
+        callback: impl FnMut(EngineEvent) + Send + 'static,
+        availability: AudioAvailability,
+        resolver: LocationResolver,
+    ) -> Self {
         match DeviceOutput::open(callback) {
             Ok(output) => Self {
                 output: Some(output),
                 error: None,
                 availability,
+                resolver,
             },
             Err(error) => {
                 availability.set_error(Some(error.clone()));
@@ -44,6 +49,7 @@ impl DeviceBackend {
                     output: None,
                     error: Some(error),
                     availability,
+                    resolver,
                 }
             }
         }
@@ -56,6 +62,11 @@ impl DeviceBackend {
             output: None,
             error: Some(error),
             availability,
+            resolver: Arc::new(|location| {
+                let path = std::path::PathBuf::from(location);
+                let ext = path.extension().and_then(|ext| ext.to_str()).map(str::to_owned);
+                Ok((std::fs::File::open(&path)?, ext))
+            }),
         }
     }
 
@@ -68,10 +79,11 @@ impl AudioBackend for DeviceBackend {
     fn available(&self) -> bool {
         self.output.is_some() && self.availability.require().is_ok()
     }
-    fn load(&mut self, path: &Path) -> Result<Duration, String> {
+    fn load(&mut self, location: &str) -> Result<Duration, String> {
         self.availability.require()?;
+        let (file, ext) = (self.resolver)(location).map_err(|e| e.to_string())?;
         match &self.output {
-            Some(output) => output.load(path).map_err(|e| e.to_string()),
+            Some(output) => output.load_file(file, ext.as_deref()).map_err(|e| e.to_string()),
             None => Err(self.error.clone().unwrap_or_else(|| "音频输出不可用".into())),
         }
     }

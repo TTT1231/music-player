@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
 });
 vi.mock("../store", () => ({
     usePlayerState: () => ({ state: mocks.state, notice: mocks.notice, error: null, platform: "desktop" }),
+    usePlaybackPosition: () => (mocks.state as { positionMs?: number } | null)?.positionMs ?? 0,
     playerStore: { dismissNotice: vi.fn() },
 }));
 vi.mock("../ipc", () => ({ commands: mocks.commands }));
@@ -140,7 +141,7 @@ test("模式、音效和音量弹层可操作并可用 Esc 关闭", () => {
     fireEvent.click(screen.getByRole("button", { name: "播放模式：列表循环" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "随机播放" }));
     expect(mocks.commands.setMode).toHaveBeenCalledWith("shuffle");
-    fireEvent.click(screen.getByRole("button", { name: "音效：升降调和倍速" }));
+    fireEvent.click(screen.getByRole("button", { name: "升降调和倍速" }));
     expect(screen.getByRole("slider", { name: "升降调" })).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("slider", { name: "升降调" })).toBeNull();
@@ -241,4 +242,20 @@ test("弹层超出底栏时向内收回，与底栏两端保持 8px", () => {
     } finally {
         Element.prototype.getBoundingClientRect = original;
     }
+});
+
+test("升降调和倍速按钮与手机一致：⋮ 加倍速角标，底栏不再显示倍速和音调文字", () => {
+    mocks.state = { ...state, rate: 1.2, pitch: 2 };
+    const { container } = render(<DesktopLayout />);
+    const button = screen.getByRole("button", { name: "升降调和倍速" });
+    expect(button.querySelector("sup")?.textContent).toBe("1.2X");
+    expect(container.querySelector(".desktop-rate")).toBeNull();
+    expect(screen.queryByText(/1\.2x/)).toBeNull();
+    expect(screen.queryByText("+2")).toBeNull();
+});
+
+test("倍速为 1.0 时不显示角标", () => {
+    mocks.state = { ...state, rate: 1, pitch: 3 };
+    render(<DesktopLayout />);
+    expect(screen.getByRole("button", { name: "升降调和倍速" }).querySelector("sup")?.textContent ?? "").toBe("");
 });

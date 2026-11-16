@@ -1,0 +1,744 @@
+/* 安卓布局：从 design/preview/mobile.html 移植；组件样式在各自文件。 */
+:where(.android) {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #fbfbfa;
+    color: var(--ink, #1c2629);
+    --sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-family: var(--sans);
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    /* 安卓 15 起应用全屏绘制到系统栏下：内容让开状态栏和导航栏，绝对定位的背景（模糊封面、雪花）仍铺满全屏 */
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* clip 而不是 hidden：模糊封面背景超出屏幕，hidden 的容器仍可被焦点或脚本滚动，整页会错位 */
+    overflow: hidden;
+    overflow: clip;
+}
+.android :where(button) {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+}
+.android :where(input) {
+    font: inherit;
+}
+
+/* 图标 */
+.m-icon {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* 首页顶部：搜索 + 导入 */
+.lib-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px 10px 20px;
+    flex: none;
+}
+.m-search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 20px;
+    background: #f0f1ef;
+    color: #7a8381;
+}
+.m-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: none;
+    outline: none;
+    font-size: 14px;
+    color: var(--ink, #1c2629);
+}
+.m-search .m-icon {
+    width: 17px;
+    height: 17px;
+}
+.top-btn {
+    flex: none;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--ink, #1c2629);
+}
+.top-btn:hover {
+    background: var(--paper-2, #e3e8e1);
+}
+.top-btn .m-icon {
+    width: 22px;
+    height: 22px;
+}
+
+/* 播放列表 */
+.m-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+    scrollbar-width: none;
+    min-height: 0;
+}
+.m-list::-webkit-scrollbar {
+    display: none;
+}
+.m-row {
+    display: flex;
+    align-items: center;
+    border-radius: 12px;
+    transition: background 0.12s;
+}
+.m-row:active {
+    background: rgba(0, 0, 0, 0.04);
+}
+.m-play {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 4px 8px 12px;
+}
+.m-row .cover {
+    border-radius: 8px;
+}
+.m-row .tx {
+    flex: 1;
+    min-width: 0;
+}
+.m-row .t {
+    display: block;
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.m-row .a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--muted, #5b6764);
+    white-space: nowrap;
+    overflow: hidden;
+}
+.m-row .a span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.m-row.on .t {
+    color: var(--cobalt, #2440b8);
+    font-weight: 600;
+}
+/* 正在播放：封面上的均衡条 */
+.android .m-row .cover,
+.android .ls-row .cover,
+.android .mini .cover {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+}
+/* 封面容器：均衡条叠在封面上，必须以它为定位基准，否则会盖住整个屏幕 */
+.android .cv {
+    position: relative;
+    flex: none;
+    display: block;
+    border-radius: 8px;
+    overflow: hidden;
+    line-height: 0;
+}
+.eq {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+    background: rgba(0, 0, 0, 0.35);
+}
+.android .eq i {
+    width: 3px;
+    height: 14px;
+    background: #fff;
+    border-radius: 1px;
+    animation: android-eq 0.9s ease-in-out infinite alternate;
+}
+.android .eq i:nth-child(2) {
+    animation-delay: -0.3s;
+}
+.android .eq i:nth-child(3) {
+    animation-delay: -0.6s;
+}
+.android .eq i:nth-child(4) {
+    animation-delay: -0.45s;
+}
+@keyframes android-eq {
+    from {
+        transform: scaleY(0.25);
+    }
+    to {
+        transform: scaleY(1);
+    }
+}
+.m-tag {
+    flex: none;
+    font-size: 10px;
+    line-height: 14px;
+    padding: 0 4px;
+    border-radius: 3px;
+    border: 1px solid #c5ccd0;
+    color: #6f7a77;
+}
+.m-del {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    margin-right: 2px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: #b3b9b7;
+}
+.m-del:active {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--ink, #1c2629);
+}
+.m-del .m-icon {
+    width: 16px;
+    height: 16px;
+}
+.m-empty {
+    padding: 30px 12px;
+    color: var(--muted, #5b6764);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* 迷你播放条 */
+.mini {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    /* 原型的 28px 底距含手机的手势条区域；真机已让开导航栏，只补足差额 */
+    margin: 0 12px max(12px, calc(28px - env(safe-area-inset-bottom, 0px)));
+    padding: 8px;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.04),
+        0 8px 24px rgba(28, 38, 41, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+.mini .cover {
+    border-radius: 8px;
+}
+.mini .tx {
+    flex: 1;
+    min-width: 0;
+}
+.mini .t {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mini .a {
+    display: block;
+    font-size: 12px;
+    color: var(--muted, #5b6764);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mini .p {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--cobalt, #2440b8);
+    transition: width 0.2s linear;
+}
+.mini-btn {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+}
+
+/* 播放页 */
+.android--player {
+    background: linear-gradient(170deg, #3a3346, #141118);
+    color: #d6e2ea;
+}
+/* 状态栏区域保持应用的浅色底：深色播放页不铺到系统状态栏下，系统的时间和图标始终看得清 */
+.android--player::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    height: env(safe-area-inset-top, 0px);
+    background: #fbfbfa;
+    pointer-events: none;
+}
+.np-bg {
+    position: absolute;
+    inset: -20%;
+    z-index: 0;
+    background-size: cover;
+    background-position: center;
+    filter: blur(48px) saturate(1.3) brightness(0.48);
+}
+.np-shade {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.18) 40%, rgba(0, 0, 0, 0.6) 100%);
+}
+.android--player .np-snow {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 86%);
+    mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 86%);
+}
+.android--player .np-top,
+.android--player .np-head,
+.android--player .np-lyrics,
+.android--player .np-ctl {
+    position: relative;
+    z-index: 1;
+}
+.np-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 14px 0;
+}
+.np-top button,
+.np-top i {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    color: #d6e2ea;
+}
+.np-top .m-icon {
+    width: 24px;
+    height: 24px;
+}
+.np-head {
+    padding: 10px 28px 0;
+}
+.np-head .stage-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #fff;
+    font-family: var(--sans, system-ui, sans-serif);
+    line-height: 1.3;
+}
+.np-head .stage-artist {
+    margin: 6px 0 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.72);
+}
+/* 歌词区占满标题与控制区之间的空间；内部歌词列表在其中滚动，不能撑高到控制区后面 */
+.np-lyrics {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0 28px;
+    min-height: 0;
+    margin-top: 12px;
+}
+.np-lyrics > .lyrics {
+    flex: 1;
+    min-height: 0;
+}
+/* 移动端歌词：20px，当前行不缩放 */
+.np-lyrics .ly {
+    font-size: 20px;
+    line-height: 1.55;
+    padding: 0.38em 0;
+    color: rgba(255, 255, 255, 0.5);
+}
+.np-lyrics .ly.past {
+    color: rgba(255, 255, 255, 0.32);
+}
+.np-lyrics .ly.is-active {
+    transform: none;
+}
+.np-ctl {
+    padding: 6px 28px max(12px, calc(30px - env(safe-area-inset-bottom, 0px)));
+}
+.np-tools {
+    display: flex;
+    justify-content: flex-end;
+    height: 36px;
+    margin-bottom: 2px;
+}
+.np-rate {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: rgba(255, 255, 255, 0.8);
+}
+.np-rate .m-icon {
+    width: 22px;
+    height: 22px;
+    /* 两个圆点与原型的实心圆（直径约 3.4）大小一致 */
+    stroke-width: 3.4;
+}
+.np-rate sup {
+    position: absolute;
+    left: 22px;
+    top: 2px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.75);
+}
+.np-rate.changed,
+.np-rate.changed sup {
+    color: #fff;
+}
+.np-times {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.72);
+    font-variant-numeric: tabular-nums;
+}
+.np-btns {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    color: #fff;
+}
+.np-btns button {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    transition: transform 0.1s;
+}
+.np-btns button:active {
+    transform: scale(0.92);
+}
+.np-btns .m-icon {
+    width: 24px;
+    height: 24px;
+}
+.np-btns .side {
+    opacity: 0.85;
+}
+.np-btns .side .m-icon {
+    width: 22px;
+    height: 22px;
+}
+.np-btns .big {
+    width: 66px;
+    height: 66px;
+    background: #fff;
+    color: var(--ink, #1c2629);
+}
+.np-btns .big .m-icon {
+    width: 28px;
+    height: 28px;
+}
+
+/* 底部弹层 */
+.scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    background: rgba(0, 0, 0, 0.5);
+}
+.sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    background: #fff;
+    color: var(--ink, #1c2629);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
+    /* 弹层贴屏幕底边，内容让开导航栏 */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.grab {
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: #dfe3e1;
+    margin: 8px auto 2px;
+}
+.tune-sheet {
+    padding-bottom: max(34px, env(safe-area-inset-bottom, 0px));
+}
+.tune-sheet .player-tune {
+    padding: 12px 24px 0;
+}
+.list-sheet {
+    height: 72%;
+    display: flex;
+    flex-direction: column;
+}
+.ls-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 8px 20px 12px;
+    border-bottom: 1px solid #eef0ee;
+    flex: none;
+}
+.ls-head b {
+    font-size: 16px;
+}
+.ls-head span {
+    font-size: 13px;
+    color: var(--muted, #5b6764);
+}
+.ls-list {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: none;
+    padding: 4px 0 28px;
+}
+.ls-list::-webkit-scrollbar {
+    display: none;
+}
+.ls-row {
+    display: flex;
+    align-items: center;
+}
+.ls-play {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 4px 7px 18px;
+    border-radius: 10px;
+}
+.ls-row:active .ls-play {
+    background: rgba(0, 0, 0, 0.04);
+}
+.ls-cv {
+    position: relative;
+    flex: none;
+}
+.ls-row .cover {
+    border-radius: 6px;
+    overflow: hidden;
+}
+.ls-row.on .t,
+.ls-row.on .a {
+    color: var(--cobalt, #2440b8);
+}
+.ls-row.on .a .m-tag {
+    color: var(--cobalt, #2440b8);
+    border-color: var(--cobalt, #2440b8);
+}
+.ls-eq {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.35);
+}
+.ls-eq i {
+    width: 2.5px;
+    height: 14px;
+    background: #fff;
+    border-radius: 1px;
+    animation: android-eq 0.9s ease-in-out infinite alternate;
+}
+.ls-tx {
+    min-width: 0;
+}
+.ls-tx .t {
+    display: block;
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ls-tx .a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted, #5b6764);
+    white-space: nowrap;
+    overflow: hidden;
+}
+.ls-del {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    margin-right: 8px;
+    display: grid;
+    place-items: center;
+    color: #9aa3a0;
+    border-radius: 50%;
+}
+.ls-del:active {
+    background: var(--paper-2, #e3e8e1);
+    color: var(--ink, #1c2629);
+}
+.ls-del .m-icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* 导入页 */
+.imp-top {
+    display: flex;
+    align-items: center;
+    padding: 2px 10px 0;
+}
+.imp-top .top-btn {
+    width: 44px;
+    height: 44px;
+}
+.imp-top .top-btn .m-icon {
+    width: 26px;
+    height: 26px;
+}
+.imp {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 48px 24px 40px;
+    min-height: 0;
+    overflow-y: auto;
+}
+.imp-hero {
+    align-self: center;
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(36, 64, 184, 0.08);
+    color: var(--cobalt, #2440b8);
+}
+.imp-hero .m-icon {
+    width: 44px;
+    height: 44px;
+    stroke-width: 1.6;
+}
+.imp h2 {
+    margin: 20px 0 40px;
+    font-size: 26px;
+    font-weight: 600;
+    text-align: center;
+}
+.imp-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 56px;
+    border-radius: 16px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink, #1c2629);
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+    text-align: center;
+}
+.imp-btn + .imp-btn {
+    margin-top: 14px;
+}
+.imp-btn:active {
+    transform: scale(0.98);
+}
+.imp-btn .m-icon {
+    width: 22px;
+    height: 22px;
+}
+.imp-btn.primary {
+    background: var(--cobalt, #2440b8);
+    color: #fff;
+    box-shadow: 0 6px 18px rgba(36, 64, 184, 0.28);
+}
+.imp-btn.primary:active {
+    background: #1c3499;
+}
+.imp-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+.imp-done {
+    margin-top: auto;
+    text-align: center;
+    padding-top: 24px;
+}
+.imp-done p {
+    margin: 0 0 16px;
+    font-size: 17px;
+    color: var(--ink, #1c2629);
+}
+.imp-done .imp-btn {
+    width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .android .eq i,
+    .ls-eq i,
+    .mini .p {
+        animation: none;
+        transition: none;
+    }
+    .np-bg {
+        transition: none;
+    }
+}

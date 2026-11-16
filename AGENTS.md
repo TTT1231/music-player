@@ -11,29 +11,29 @@ project/
 ├── packages/                # 内部包，桌面和安卓共用
 │   ├── music-core/          # Rust：曲库、歌词、导入配对、播放模式、保存
 │   ├── music-audio/         # Rust：解码、倍速与升降调、封面
-│   └── request/ utils/      # TS 包，exports 直指 src 源码
+│   └── tauri-plugin-playback/ # Rust+Kotlin：安卓前台播放、通知栏、系统文件选择、按 URI 打开
 ├── fixtures/music/          # 各层测试共用的生成音频和歌词，进 git
 ├── internal/                # 配置包（tsconfig）
 ├── scripts/                 # 检查范围、lint 等仓库脚本
-├── docs/                    # 架构、测试说明、验收清单
+├── docs/                    # 架构、测试说明
 ├── design/preview/          # 设计原型（本地，不进 git）
 └── assets/                  # 开发用曲库（本地，不进 git，不进安装包）
 ```
 
 ## 何时读什么
 
-| 要做的事                             | 先读                                                       |
-| ------------------------------------ | ---------------------------------------------------------- |
-| 改播放、曲库、歌词、导入，或新增模块 | [技术架构](docs/architecture.md)                           |
-| 实现界面或判断一项功能是否完成       | [验收清单](docs/acceptance.md)，视觉对照 `design/preview/` |
-| 选择或新增测试、复现 CI 失败         | [测试说明](docs/testing.md)                                |
-| 修改某个具体项目                     | 所属目录的 README 和 AGENTS.md                             |
+| 要做的事                             | 先读                                                                                    |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| 改播放、曲库、歌词、导入，或新增模块 | [技术架构](docs/architecture.md)                                                        |
+| 实现或修改界面                       | 视觉对照 `design/preview/`，已确认的偏离见[技术架构](docs/architecture.md#与原型的差异) |
+| 选择或新增测试、复现 CI 失败         | [测试说明](docs/testing.md)                                                             |
+| 修改某个具体项目                     | 所属目录的 README 和 AGENTS.md（存在时）                                                |
 
 设计原型用 `node design/preview/serve.mjs` 启动，打开 `http://localhost:5178/desktop.html` 或 `mobile.html`。
 
 ## 实现边界
 
-- 完全离线：不申请网络权限，不引入联网依赖（包括 `packages/request`）；Tauri 框架自身的传递依赖除外。
+- 完全离线：不申请网络权限，不引入联网依赖；Tauri 框架自身的传递依赖除外。
 - 播放状态只在 Rust 保留一份，界面通过命令和事件投影它；平台差异只放在 `src-tauri` 和安卓插件里。
 - 导入只记录文件位置，不复制文件；移出播放列表不删除文件。
 - 界面按设计原型实现，偏离前先问用户。

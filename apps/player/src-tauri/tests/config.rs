@@ -28,6 +28,7 @@ fn app_configuration_keeps_runtime_local_and_targets_nsis() {
         capability["permissions"],
         serde_json::json!([
             "core:default",
+            "playback:default",
             "core:window:allow-minimize",
             "core:window:allow-toggle-maximize",
             "core:window:allow-close",
@@ -38,6 +39,22 @@ fn app_configuration_keeps_runtime_local_and_targets_nsis() {
     // 原型布局以 1024px 宽为下限（min-width: 1024px），窗口不能缩得更窄，否则右侧队列和底栏按钮被裁掉
     assert_eq!(config["app"]["windows"][0]["minWidth"], 1024);
     assert_eq!(config["app"]["windows"][0]["minHeight"], 640);
+}
+
+#[test]
+fn lyrics_window_capability_is_local_and_minimal() {
+    // 桌面歌词窗口独立于主窗口授权：只允许本地命令、窗口拖动和字号自适应的窗口尺寸调整
+    let capability: Value = serde_json::from_str(include_str!("../capabilities/lyrics.json")).unwrap();
+    assert!(capability.get("remote").is_none());
+    assert_eq!(capability["windows"], serde_json::json!(["lyrics"]));
+    assert_eq!(
+        capability["permissions"],
+        serde_json::json!([
+            "core:default",
+            "core:window:allow-set-size",
+            "core:window:allow-start-dragging"
+        ])
+    );
 }
 
 #[test]

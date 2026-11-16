@@ -35,7 +35,12 @@ pub struct Actor<B: AudioBackend> {
 
 impl<B: AudioBackend + 'static> Actor<B> {
     /// 工厂在工作线程创建设备，设备类型无需实现 Send。
-    pub fn spawn<F, E>(session: PathBuf, factory: F, emit: E) -> Result<Self, String>
+    pub fn spawn<F, E>(
+        session: PathBuf,
+        resolver: crate::controller::LocationResolver,
+        factory: F,
+        emit: E,
+    ) -> Result<Self, String>
     where
         F: FnOnce(Box<dyn Fn(EngineEvent) + Send>) -> Result<B, String> + Send + 'static,
         E: Fn(Projection) + Send + 'static,
@@ -51,7 +56,7 @@ impl<B: AudioBackend + 'static> Actor<B> {
                 let _ = audio_sender.send(Message::Audio(generation, event));
             });
             let mut controller = match factory(callback).and_then(|backend| {
-                Controller::new(session, backend, Arc::clone(&generation)).map_err(|e| e.to_string())
+                Controller::new(session, backend, Arc::clone(&generation), resolver).map_err(|e| e.to_string())
             }) {
                 Ok(controller) => controller,
                 Err(error) => {

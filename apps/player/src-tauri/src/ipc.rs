@@ -7,11 +7,12 @@ use music_audio::Cover;
 use music_core::{Lyrics, PlayMode};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+#[cfg(desktop)]
 use tauri_plugin_dialog::DialogExt;
 
 use crate::actor::Actor;
 use crate::audio_backend::{AudioAvailability, DeviceBackend};
-use crate::controller::{AudioBackend, ImportResult, PlayerState};
+use crate::controller::{AudioBackend, Controller, ImportResult, PlayerState};
 use crate::cover::CoverCache;
 
 pub type DeviceActor = Actor<DeviceBackend>;
@@ -72,20 +73,30 @@ pub fn get_cover_with<B: AudioBackend + 'static>(
     }
 }
 
+/// 导入桌面路径（文件或文件夹）。
 pub fn import_files<B: AudioBackend + 'static>(
     actor: &Actor<B>,
     store: &CoverStore,
     paths: Vec<String>,
 ) -> Result<ImportResult, String> {
+    import_with(actor, store, move |controller| {
+        controller.import_paths(&paths).map_err(|e| e.to_string())
+    })
+}
+
+/// 在控制器线程执行一次导入，期间让封面缓存失效（同名歌曲可能换了文件）。
+pub fn import_with<B, F>(actor: &Actor<B>, store: &CoverStore, job: F) -> Result<ImportResult, String>
+where
+    B: AudioBackend + 'static,
+    F: FnOnce(&mut Controller<B>) -> Result<ImportResult, String> + Send + 'static,
+{
     {
         let mut state = store.state.lock().unwrap_or_else(|e| e.into_inner());
         state.imports += 1;
         state.revision = state.revision.wrapping_add(1);
         state.cache.clear();
     }
-    let result = actor
-        .call(move |controller| controller.import_paths(&paths))
-        .and_then(|result| result.map_err(|e| e.to_string()));
+    let result = actor.call(job).and_then(|result| result);
     {
         let mut state = store.state.lock().unwrap_or_else(|e| e.into_inner());
         state.imports -= 1;
@@ -129,29 +140,48 @@ pub fn import_paths(
 #[tauri::command]
 pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<ImportResult>, String> {
     #[cfg(desktop)]
-    let chosen = match kind.as_str() {
-        "files" => app.dialog().file().blocking_pick_files(),
-        "folder" => app.dialog().file().blocking_pick_folder().map(|folder| vec![folder]),
-        _ => return Err("未知的导入方式".into()),
-    };
-    #[cfg(not(desktop))]
-    let chosen = match kind.as_str() {
-        "files" => app.dialog().file().blocking_pick_files(),
-        "folder" => return Err("此平台尚不支持选择文件夹".into()),
-        _ => return Err("未知的导入方式".into()),
-    };
-    let Some(chosen) = chosen else {
-        return Ok(None);
-    };
-    let paths = chosen
-        .into_iter()
-        .map(|path| {
-            path.into_path()
-                .map(|path| path.to_string_lossy().into_owned())
-                .map_err(|error| error.to_string())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    import_files(&app.state::<DeviceActor>(), &app.state::<CoverStore>(), paths).map(Some)
+    {
+        let chosen = match kind.as_str() {
+            "files" => app.dialog().file().blocking_pick_files(),
+            "folder" => app.dialog().file().blocking_pick_folder().map(|folder| vec![folder]),
+            _ => return Err("未知的导入方式".into()),
+        };
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let paths = chosen
+            .into_iter()
+            .map(|path| {
+                path.into_path()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .map_err(|error| error.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        import_files(&app.state::<DeviceActor>(), &app.state::<CoverStore>(), paths).map(Some)
+    }
+    // 安卓：系统文件选择器返回内容 URI 和显示名；URI 本身不含文件名，配对和歌名都要用显示名
+    #[cfg(mobile)]
+    {
+        let picked = match kind.as_str() {
+            "files" => tauri_plugin_playback::pick_files(&app),
+            "folder" => tauri_plugin_playback::pick_folder(&app),
+            _ => return Err("未知的导入方式".into()),
+        }
+        .map_err(|error| error.to_string())?;
+        if picked.is_empty() {
+            return Ok(None);
+        }
+        let files: Vec<_> = picked
+            .into_iter()
+            .map(|file| music_core::FileRef::new(file.uri, file.name))
+            .collect();
+        import_with(
+            &app.state::<DeviceActor>(),
+            &app.state::<CoverStore>(),
+            move |controller| Ok(controller.import_files(files)),
+        )
+        .map(Some)
+    }
 }
 
 #[tauri::command]
@@ -245,4 +275,16 @@ pub fn get_lyrics(actor: State<'_, DeviceActor>, id: String) -> Result<LyricsRes
         .call(move |c| c.lyrics(&id))?
         .map(lyrics_response)
         .map_err(|e| e.to_string())
+}
+
+// Windows 上同步命令里创建 WebviewWindow 会死锁（webview 停在 about:blank），必须用 async 命令
+#[tauri::command]
+pub async fn toggle_desktop_lyrics(app: AppHandle) -> Result<bool, String> {
+    #[cfg(desktop)]
+    return crate::desktop_lyrics::toggle(&app);
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+        Err("桌面歌词只在桌面端可用".into())
+    }
 }

@@ -1,0 +1,152 @@
+/* 桌面歌词窗口：从 design/preview/desktop.html 的 .desk 移植；窗口本体透明，悬停显出半透明底。 */
+.desk {
+    --lyric: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    --fs: 32px;
+    box-sizing: border-box;
+    width: 980px;
+    padding: 6px 24px 12px;
+    border-radius: 6px;
+    background: transparent;
+    cursor: move;
+    user-select: none;
+    transition: background 0.2s;
+}
+.desk:hover,
+.desk:focus-within {
+    background: rgba(20, 22, 26, 0.5);
+}
+/* 重置样式零优先级，不压过按钮自己的样式 */
+.desk :where(button) {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+}
+.desk-bar {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.desk:hover .desk-bar,
+.desk:focus-within .desk-bar {
+    opacity: 1;
+}
+.desk-bar button {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+}
+.desk-bar button:hover,
+.desk-bar button:focus-visible {
+    background: rgba(255, 255, 255, 0.15);
+    outline: none;
+}
+.dl-icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.desk-bar .sep {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.25);
+    margin: 0 6px;
+}
+.desk-bar .close {
+    position: absolute;
+    right: -12px;
+    top: 2px;
+}
+/* 歌词窗口只显示两行，超长的行由脚本平移或省略，不出现滚动条 */
+html:has(.desk),
+body:has(.desk) {
+    overflow: hidden;
+}
+.desk-lines {
+    display: grid;
+    /* minmax(0, 1fr)：超长行不撑宽网格，否则窗口出现水平滚动条 */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+}
+/* 两行都居中：视线停在同一条竖轴上，不必左右来回跳 */
+.dl {
+    position: relative;
+    justify-self: center;
+    max-width: 100%;
+    white-space: nowrap;
+    font-family: var(--lyric);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-size: var(--fs);
+    line-height: 1.3;
+    overflow: hidden;
+}
+
+/* 文字层宽度等于文字本身：着色比例按文字宽度算；拖动窗口由外层带拖动标记的元素接收 */
+.dl-text {
+    position: relative;
+    display: block;
+    max-width: 100%;
+    pointer-events: none;
+    transform: translateX(var(--shift, 0px));
+}
+.dl.sliding .dl-text {
+    width: max-content;
+    max-width: none;
+}
+.dl span:not(.dl-text) {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dl.sliding span:not(.dl-text) {
+    overflow: visible;
+}
+/* 细而清晰的深色描边代替模糊阴影：在任何壁纸上都锐利可读 */
+.dl .base {
+    color: #fff;
+    text-shadow:
+        -1px 0 rgba(0, 0, 0, 0.55),
+        1px 0 rgba(0, 0, 0, 0.55),
+        0 -1px rgba(0, 0, 0, 0.55),
+        0 1px rgba(0, 0, 0, 0.55),
+        0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.dl .fill {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, #f2feff 0%, #7fe6ff 45%, #22b8f2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    clip-path: inset(0 calc(100% - var(--k, 0%)) 0 0);
+}
+.dl.idle .fill {
+    display: none;
+}
+.dl.idle .base {
+    opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+    .desk,
+    .desk-bar {
+        transition: none;
+    }
+}

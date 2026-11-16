@@ -41,9 +41,26 @@ test("shows the queue and toggles between cover and compact rows", () => {
     expect(current.classList.contains("on")).toBe(true);
     expect(current.querySelector(".eq")).not.toBeNull();
     expect(container.querySelectorAll(".q-row .cover")).toHaveLength(3);
+    const cover = container.querySelector(".q-row .cover");
     fireEvent.click(screen.getByRole("button", { name: "紧凑列表" }));
-    expect(container.querySelectorAll(".q-row .cover")).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "显示封面" })).not.toBeNull();
+    expect(container.querySelector(".q-list")!.classList.contains("compact")).toBe(true);
+    expect(screen.getByText("Moon - 乙")).not.toBeNull();
+    // 紧凑模式只用样式隐藏封面；同一个图片元素保留，切回时不重新加载
+    fireEvent.click(screen.getByRole("button", { name: "显示封面" }));
+    expect(container.querySelector(".q-row .cover")).toBe(cover);
+});
+
+test("scrolls to a located song once, not again on later playback or view changes", () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { value: scrollTo, configurable: true });
+    const { props, rerender } = setup({ locateRequest: { id: "c", version: 1 } });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    rerender(<QueuePanel {...props} locateRequest={{ id: "c", version: 1 }} currentId="a" tracks={[...tracks]} />);
+    fireEvent.click(screen.getByRole("button", { name: "紧凑列表" }));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    rerender(<QueuePanel {...props} locateRequest={{ id: "a", version: 2 }} />);
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+    delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
 });
 
 test("searches and highlights case insensitively; clear, escape and actions work", () => {

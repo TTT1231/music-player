@@ -73,23 +73,42 @@ test("projects platform, interpolates progress and resets at pause or track chan
     await h.store.start();
     expect(h.store.getSnapshot().platform).toBe("android");
     h.advance(200);
-    expect(h.store.getSnapshot().state?.positionMs).toBe(1300);
+    expect(h.store.getPosition()).toBe(1300);
     h.position(1500);
     h.advance(100);
-    expect(h.store.getSnapshot().state?.positionMs).toBe(1650);
+    expect(h.store.getPosition()).toBe(1650);
     h.state(player({ playing: false, positionMs: 1600 }));
     h.advance(500);
-    expect(h.store.getSnapshot().state?.positionMs).toBe(1600);
+    expect(h.store.getPosition()).toBe(1600);
     h.state(player({ currentId: "second", positionMs: 50, rate: 1 }));
     h.advance(100);
-    expect(h.store.getSnapshot().state?.positionMs).toBe(150);
+    expect(h.store.getPosition()).toBe(150);
     h.advance(5000);
-    expect(h.store.getSnapshot().state?.positionMs).toBe(3000);
+    expect(h.store.getPosition()).toBe(3000);
     h.position(4000);
-    expect(h.store.getSnapshot().state?.positionMs).toBe(3000);
+    expect(h.store.getPosition()).toBe(3000);
     h.store.stop();
     expect(h.frames.size).toBe(0);
     expect(h.unlisten).toHaveBeenCalledTimes(3);
+});
+
+test("progress frames and position events notify only position subscribers", async () => {
+    const h = harness();
+    await h.store.start();
+    const onState = vi.fn();
+    const onPosition = vi.fn();
+    h.store.subscribe(onState);
+    h.store.subscribePosition(onPosition);
+    h.advance(16);
+    h.advance(16);
+    h.position(1100);
+    h.advance(16);
+    expect(onState).not.toHaveBeenCalled();
+    expect(onPosition).toHaveBeenCalledTimes(4);
+    expect(h.store.getSnapshot().state?.positionMs).toBe(1000);
+    h.state(player({ positionMs: 2000 }));
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(h.store.getPosition()).toBe(2000);
 });
 
 test("state event arriving during initial load wins over stale response", async () => {

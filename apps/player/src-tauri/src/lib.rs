@@ -2,6 +2,8 @@ pub mod actor;
 pub mod audio_backend;
 pub mod controller;
 pub mod cover;
+#[cfg(desktop)]
+pub mod desktop_lyrics;
 pub mod ipc;
 
 use std::path::PathBuf;
@@ -15,8 +17,12 @@ use ipc::{CoverStore, DeviceActor};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default();
+    // 桌面用系统文件对话框；安卓的文件选择由播放插件完成
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    builder
+        .plugin(tauri_plugin_playback::init())
         .register_asynchronous_uri_scheme_protocol("cover", |ctx, request, responder| {
             let id = decode_cover_id(request.uri().path().trim_start_matches('/'));
             let app = ctx.app_handle().clone();
@@ -36,10 +42,38 @@ pub fn run() {
             let availability = AudioAvailability::default();
             let output_availability = availability.clone();
             let event_availability = availability.clone();
+            // 桌面：位置即路径；安卓：content:// URI 经插件打开文件描述符
+            #[cfg(target_os = "android")]
+            let location_resolver = {
+                use std::fs::File;
+                use std::os::unix::io::FromRawFd;
+                use std::path::PathBuf;
+                let handle = app.handle().clone();
+                let resolver: controller::LocationResolver =
+                    std::sync::Arc::new(move |location: &str| -> std::io::Result<(File, Option<String>)> {
+                        if location.starts_with("content://") {
+                            let fd =
+                                tauri_plugin_playback::open_fd(&handle, location).map_err(std::io::Error::other)?;
+                            let file = unsafe { File::from_raw_fd(fd) };
+                            // 内容 URI 不含文件名，不提供格式提示，由解码器按内容识别
+                            Ok((file, None))
+                        } else {
+                            let path = PathBuf::from(location);
+                            let ext = path.extension().and_then(|ext| ext.to_str()).map(str::to_owned);
+                            Ok((File::open(&path)?, ext))
+                        }
+                    });
+                resolver
+            };
+            #[cfg(not(target_os = "android"))]
+            let location_resolver = controller::path_resolver();
+            // 曲库（读封面、时长）和音频输出必须用同一个解析器：安卓的位置是 content:// URI，不能当路径打开
+            let output_resolver = location_resolver.clone();
             let actor = Actor::spawn(
                 data_dir.join("session.json"),
+                location_resolver,
                 move |callback| {
-                    let output = DeviceBackend::open(callback, output_availability);
+                    let output = DeviceBackend::open(callback, output_availability, output_resolver);
                     Ok(output)
                 },
                 move |event| {
@@ -85,6 +119,7 @@ pub fn run() {
             ipc::set_pitch,
             ipc::move_track,
             ipc::get_lyrics,
+            ipc::toggle_desktop_lyrics,
         ])
         .build(tauri::generate_context!())
         .expect("无法启动音乐播放器")

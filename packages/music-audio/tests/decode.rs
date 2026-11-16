@@ -2,8 +2,10 @@
 
 mod common;
 
+use std::fs::File;
+
 use common::*;
-use music_audio::{AudioError, decode_file, probe};
+use music_audio::{AudioError, decode_file, probe, probe_file};
 
 #[test]
 fn decodes_mp3_and_ogg() {
@@ -21,6 +23,27 @@ fn probe_reports_duration() {
     for name in [MP3_WITH_COVER, OGG_WITH_COVER] {
         let info = probe(&fixture(name)).unwrap();
         assert_close(info.duration.as_secs_f64(), TONE_SECS, 0.05, &format!("{name} 时长"));
+    }
+}
+
+#[test]
+fn probe_file_matches_probe() {
+    // 安卓从文件描述符打开歌曲：probe_file 与按路径 probe 的结果一致
+    for name in [MP3_WITH_COVER, OGG_WITH_COVER, MP3_NO_COVER] {
+        let path = fixture(name);
+        let expected = probe(&path).unwrap();
+        let actual = probe_file(
+            File::open(&path).unwrap(),
+            path.extension().and_then(|ext| ext.to_str()),
+        )
+        .unwrap();
+        assert_close(
+            actual.duration.as_secs_f64(),
+            expected.duration.as_secs_f64(),
+            0.01,
+            name,
+        );
+        assert_eq!(actual.cover.is_some(), expected.cover.is_some(), "{name} 封面");
     }
 }
 

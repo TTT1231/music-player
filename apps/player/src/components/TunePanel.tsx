@@ -6,23 +6,18 @@ export interface TunePanelProps {
     rate: number;
     onPitchChange: (semitones: number) => void;
     onRateChange: (rate: number) => void;
-    showReset?: boolean;
     variant?: "desktop" | "mobile";
 }
+
+/** 升降调每侧档数，与 Rust 的 PITCH_RANGE、倍速每侧 5 档（0.5–1.5）一致 */
+const PITCH_STEPS = 5;
 
 const rangeStyle = (value: number, min: number, max: number) => {
     const percent = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
     return { "--a": `${Math.min(50, percent)}%`, "--b": `${Math.max(50, percent)}%` } as CSSProperties;
 };
 
-export function TunePanel({
-    pitch,
-    rate,
-    onPitchChange,
-    onRateChange,
-    variant = "desktop",
-    showReset = variant !== "mobile",
-}: TunePanelProps) {
+export function TunePanel({ pitch, rate, onPitchChange, onRateChange, variant = "desktop" }: TunePanelProps) {
     return (
         <div className={`player-tune player-tune--${variant}`}>
             <label className="player-tune__row">
@@ -33,11 +28,11 @@ export function TunePanel({
                     aria-label="升降调"
                     className="player-tune__range"
                     type="range"
-                    min="-6"
-                    max="6"
+                    min={-PITCH_STEPS}
+                    max={PITCH_STEPS}
                     step="1"
                     value={pitch}
-                    style={rangeStyle(pitch, -6, 6)}
+                    style={rangeStyle(pitch, -PITCH_STEPS, PITCH_STEPS)}
                     onChange={event => onPitchChange(Number(event.currentTarget.value))}
                 />
                 <span className="player-tune__ends">
@@ -67,18 +62,6 @@ export function TunePanel({
                     <span>加快</span>
                 </span>
             </label>
-            {showReset && (
-                <button
-                    type="button"
-                    className="player-tune__reset"
-                    onClick={() => {
-                        onRateChange(1);
-                        onPitchChange(0);
-                    }}
-                >
-                    恢复正常
-                </button>
-            )}
         </div>
     );
 }

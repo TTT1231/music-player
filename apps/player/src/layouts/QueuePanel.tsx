@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Cover } from "../components/Cover";
 import { formatTime } from "../components/formatTime";
+import { useSmoothWheel } from "../components/useSmoothWheel";
 import type { TrackView } from "../ipc";
 import "./QueuePanel.css";
 
@@ -89,7 +90,7 @@ function Equalizer() {
     );
 }
 
-export function QueuePanel({
+export const QueuePanel = memo(function QueuePanel({
     tracks,
     currentId,
     playing,
@@ -111,8 +112,12 @@ export function QueuePanel({
     const drag = useRef<Drag | null>(null);
     const focusRow = useRef<string | null>(null);
     const onMoveRef = useRef(onMove);
+    const anchor = useRef<{ id: string; offset: number } | null>(null);
+    const located = useRef(0);
+    useSmoothWheel(listRef);
     const q = query.trim();
     const view = tracks.filter(track => !q || (track.title + track.artist).toLowerCase().includes(q.toLowerCase()));
+    const indexOf = new Map(tracks.map((track, index) => [track.id, index]));
 
     useEffect(() => {
         onMoveRef.current = onMove;
@@ -131,19 +136,42 @@ export function QueuePanel({
         row?.focus();
     }, [tracks]);
 
+    // 每个定位请求只滚动一次；歌曲可能稍后才出现在列表里，所以列表变化时再找一次
     useEffect(() => {
         const list = listRef.current;
-        if (!list || !locateRequest) return;
+        if (!list || !locateRequest || located.current === locateRequest.version) return;
         const row = Array.from(list.querySelectorAll<HTMLElement>(".q-row")).find(
             node => node.dataset.id === locateRequest.id,
         );
-        if (row && typeof list.scrollTo === "function") {
+        if (!row) return;
+        located.current = locateRequest.version;
+        if (typeof list.scrollTo === "function") {
             list.scrollTo({
                 top: row.offsetTop - list.offsetTop - list.clientHeight / 2 + row.offsetHeight / 2,
                 behavior: "smooth",
             });
         }
-    }, [locateRequest, tracks, searching, query, compact]);
+    }, [locateRequest, tracks, searching, query]);
+
+    // 切换紧凑/封面列表时，切换前第一行完整可见的歌曲留在原来的位置，列表不跳动
+    useLayoutEffect(() => {
+        const list = listRef.current;
+        const saved = anchor.current;
+        anchor.current = null;
+        if (!list || !saved) return;
+        const row = Array.from(list.querySelectorAll<HTMLElement>(".q-row")).find(node => node.dataset.id === saved.id);
+        if (row) list.scrollTop = row.offsetTop - saved.offset;
+    }, [compact]);
+    const toggleCompact = () => {
+        const list = listRef.current;
+        if (list) {
+            const row = Array.from(list.querySelectorAll<HTMLElement>(".q-row")).find(
+                node => node.offsetTop - list.offsetTop >= list.scrollTop,
+            );
+            if (row?.dataset.id) anchor.current = { id: row.dataset.id, offset: row.offsetTop - list.scrollTop };
+        }
+        setCompact(value => !value);
+    };
 
     useEffect(() => {
         const list = listRef.current;
@@ -239,7 +267,7 @@ export function QueuePanel({
                         className="q-btn"
                         aria-label={compact ? "显示封面" : "紧凑列表"}
                         title={compact ? "显示封面" : "紧凑列表"}
-                        onClick={() => setCompact(!compact)}
+                        onClick={toggleCompact}
                     >
                         <Icon name={compact ? "covers" : "compact"} />
                     </button>
@@ -319,7 +347,7 @@ export function QueuePanel({
                     </p>
                 ) : (
                     view.map((track, index) => {
-                        const originalIndex = tracks.findIndex(item => item.id === track.id);
+                        const originalIndex = indexOf.get(track.id) ?? index;
                         const current = track.id === currentId;
                         return (
                             <div
@@ -369,18 +397,17 @@ export function QueuePanel({
                                     </span>
                                     {compact && <Equalizer />}
                                 </span>
-                                {!compact && (
-                                    <span className="cv">
-                                        <Cover
-                                            id={track.id}
-                                            title={track.title}
-                                            coverUrl={track.coverUrl}
-                                            revision={coverRevisions?.[track.id]}
-                                            size={56}
-                                        />
-                                        <Equalizer />
-                                    </span>
-                                )}
+                                {/* 紧凑模式只隐藏封面，不卸载：切回时图片无需重新加载 */}
+                                <span className="cv">
+                                    <Cover
+                                        id={track.id}
+                                        title={track.title}
+                                        coverUrl={track.coverUrl}
+                                        revision={coverRevisions?.[track.id]}
+                                        size={48}
+                                    />
+                                    <Equalizer />
+                                </span>
                                 <div className="q-text">
                                     <div className="t">
                                         {highlighted(track.title, q)}
@@ -420,4 +447,4 @@ export function QueuePanel({
             </div>
         </aside>
     );
-}
+});

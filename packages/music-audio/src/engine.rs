@@ -121,41 +121,18 @@ impl<S: AudioSink> Engine<S> {
             1.0
         };
     }
+    /// 播放中切换倍速/升降调直接改参数：WSOLA 逐段按当前参数取样，不需要清空；
+    /// 若先把积压冲刷出去，会补入静音，听起来是咔哒或停顿。
     pub fn set_rate(&mut self, rate: f32) {
-        self.flush_stretcher();
         self.rate = if rate.is_finite() { rate.clamp(0.25, 4.0) } else { 1.0 };
         if let Some(stretcher) = &mut self.stretcher {
             stretcher.set_rate(self.rate);
         }
     }
     pub fn set_pitch(&mut self, semitones: i8) {
-        self.flush_stretcher();
         self.pitch = semitones.clamp(-24, 24);
         if let Some(stretcher) = &mut self.stretcher {
             stretcher.set_pitch(self.pitch);
-        }
-    }
-    fn flush_stretcher(&mut self) {
-        let (Some(decoder), Some(stretcher), Some(converter)) =
-            (&self.decoder, &mut self.stretcher, &mut self.converter)
-        else {
-            return;
-        };
-        let mut stretched = Vec::new();
-        stretcher.flush(&mut stretched);
-        let mapped = map_channels(
-            &stretched,
-            usize::from(decoder.channels().max(1)),
-            usize::from(self.sink.channels().max(1)),
-        );
-        let mut samples = Vec::new();
-        converter.process(&mapped, &mut samples);
-        if !samples.is_empty() {
-            self.pending.push_back(Chunk {
-                samples,
-                offset: 0,
-                rate: self.rate,
-            });
         }
     }
     pub fn position(&self) -> Duration {

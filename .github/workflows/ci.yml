@@ -22,3 +22,48 @@ jobs:
               run: pnpm check:ci:static
             - name: Unit tests
               run: pnpm check:ci:unit
+
+    e2e-desktop:
+        name: desktop e2e
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - uses: Swatinem/rust-cache@v2
+            - run: pnpm install --frozen-lockfile
+            - name: Build the app (debug bundle)
+              run: pnpm --filter @music/player exec tauri build --debug
+            - name: Install tauri-driver
+              run: cargo install tauri-driver --locked
+            - name: Download matching msedgedriver
+              shell: pwsh
+              run: |
+                  $edge = (Get-Item (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe').'(default)').VersionInfo.ProductVersion
+                  Write-Output "Edge/WebView2 version: $edge"
+                  New-Item -ItemType Directory -Force -Path .tools | Out-Null
+                  Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$edge/edgedriver_win64.zip" -OutFile .tools/edgedriver.zip
+                  Expand-Archive -Path .tools/edgedriver.zip -DestinationPath .tools -Force
+            - name: Desktop e2e
+              shell: pwsh
+              env:
+                  MSEDGEDRIVER_PATH: ${{ github.workspace }}\.tools\msedgedriver.exe
+              run: pnpm check:ci:e2e-desktop
+
+    build-check:
+        name: installer & network check
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - uses: Swatinem/rust-cache@v2
+            - run: pnpm install --frozen-lockfile
+            - name: Build release installer and check size & network permissions
+              run: pnpm check:ci:build

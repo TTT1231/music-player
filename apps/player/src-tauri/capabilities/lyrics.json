@@ -1,0 +1,6 @@
+{
+    "identifier": "lyrics",
+    "description": "桌面歌词窗口的本地应用权限：本地命令、拖动窗口、字号自适应时调整窗口大小",
+    "windows": ["lyrics"],
+    "permissions": ["core:default", "core:window:allow-set-size", "core:window:allow-start-dragging"]
+}

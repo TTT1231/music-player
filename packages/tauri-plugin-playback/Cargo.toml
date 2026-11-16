@@ -1,0 +1,16 @@
+[package]
+name = "tauri-plugin-playback"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+links = "tauri-plugin-playback"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+log = "0.4"
+thiserror = "2"
+tauri = { version = "2" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

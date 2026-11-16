@@ -1,0 +1,7 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+播放插件：同步通知栏播放状态、接收原生播放事件、退到后台的默认权限。
+"""
+permissions = ["allow-notify-state", "allow-start-events", "allow-move-to-background"]

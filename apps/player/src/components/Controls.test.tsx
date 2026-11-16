@@ -86,7 +86,7 @@ describe("播放进度", () => {
     });
 });
 
-test("音效面板按原型调节升降调和倍速，桌面可恢复正常", () => {
+test("音效面板调节升降调（±5 档）和倍速，没有“恢复正常”", () => {
     const pitch = vi.fn();
     const rate = vi.fn();
     const { rerender } = render(<TunePanel pitch={-2} rate={1.2} onPitchChange={pitch} onRateChange={rate} />);
@@ -96,9 +96,10 @@ test("音效面板按原型调节升降调和倍速，桌面可恢复正常", ()
     fireEvent.change(screen.getByRole("slider", { name: "倍速" }), { target: { value: "0.8" } });
     expect(pitch).toHaveBeenCalledWith(3);
     expect(rate).toHaveBeenCalledWith(0.8);
-    fireEvent.click(screen.getByRole("button", { name: "恢复正常" }));
-    expect(pitch).toHaveBeenLastCalledWith(0);
-    expect(rate).toHaveBeenLastCalledWith(1);
+    const pitchSlider = screen.getByRole("slider", { name: "升降调" });
+    expect(pitchSlider.getAttribute("min")).toBe("-5");
+    expect(pitchSlider.getAttribute("max")).toBe("5");
+    expect(screen.queryByRole("button", { name: "恢复正常" })).toBeNull();
     rerender(<TunePanel pitch={0} rate={1} onPitchChange={pitch} onRateChange={rate} variant="mobile" />);
     expect(screen.queryByRole("button", { name: "恢复正常" })).toBeNull();
     expect(screen.getByText("升降调播放")).toBeTruthy();

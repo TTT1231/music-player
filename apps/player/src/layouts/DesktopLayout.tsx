@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Cover } from "../components/Cover";
-import { LyricView, type LyricLine } from "../components/LyricView";
+import { LiveLyrics, LiveProgressBar, LiveTime } from "../components/Live";
+import { type LyricLine } from "../components/LyricView";
 import { MODES, ModeMenu } from "../components/ModeMenu";
-import { ProgressBar } from "../components/ProgressBar";
 import { Toast } from "../components/Toast";
 import { TunePanel } from "../components/TunePanel";
 import { formatTime } from "../components/formatTime";
@@ -15,6 +15,7 @@ import { useNativeImportDrop } from "./useNativeImportDrop";
 import "./DesktopLayout.css";
 
 type Popup = "mode" | "tune" | "volume" | null;
+const NO_TRACKS: TrackView[] = [];
 type Colors = { top: string; bottom: string; accent: string; image: string | null };
 const glazes = ["#2440b8", "#8fae9a", "#1c2629", "#9b3b4a", "#b08a3e", "#d6e2ea", "#4e6b5c"];
 const icons = {
@@ -22,7 +23,8 @@ const icons = {
     pause: "M6 5h4v14H6zM14 5h4v14h-4z",
     prev: "M5 5h2.2v14H5zM20 6.2v11.6a.8.8 0 0 1-1.2.7L10 12.7a.8.8 0 0 1 0-1.4l8.8-5.8a.8.8 0 0 1 1.2.7z",
     next: "M16.8 5H19v14h-2.2zM4 6.2v11.6a.8.8 0 0 0 1.2.7L14 12.7a.8.8 0 0 0 0-1.4L5.2 5.5A.8.8 0 0 0 4 6.2z",
-    sliders: "M4 7h10M18 7h2M4 17h4M12 17h8M18 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M12 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0",
+    // 竖排两点（⋮），与手机播放页的升降调/倍速按钮一致
+    dots: "M12 7.5h.01M12 16.5h.01",
     volume: "M4 9v6h4l5 4V5L8 9H4zM16.5 8.5a5 5 0 0 1 0 7",
     mute: "M4 9v6h4l5 4V5L8 9H4zM16.5 9.5l5 5M21.5 9.5l-5 5",
     queue: "M4 6h16M4 11h16M4 16h8M15.5 14l5 3-5 3z",
@@ -126,7 +128,6 @@ export function DesktopLayout() {
     const revision = current ? revisions[current.id] : undefined;
     const stage = useStageColors(current, revision);
     const mode = MODES.find(item => item.id === state?.mode) ?? MODES[1];
-    const position = preview ?? state?.positionMs ?? 0;
     const volume = state?.volume ?? 0.8;
     const rate = state?.rate ?? 1;
     const pitch = state?.pitch ?? 0;
@@ -137,10 +138,22 @@ export function DesktopLayout() {
     } as CSSProperties;
     // 轻提示只显示最近发生的一件事：移除、操作失败、文件无法读取或后端错误
     const toastKey = useRef(0);
-    const showToast = (message: string) => setToast({ message, key: ++toastKey.current });
-    const run = (promise: Promise<unknown>) => {
-        void promise.catch(reason => showToast(String(reason)));
-    };
+    const showToast = useCallback((message: string) => setToast({ message, key: ++toastKey.current }), []);
+    const run = useCallback(
+        (promise: Promise<unknown>) => {
+            void promise.catch(reason => showToast(String(reason)));
+        },
+        [showToast],
+    );
+    // 播放队列是 memo 组件：回调保持稳定，进度预览等局部更新不会重渲染整张列表
+    const playTrack = useCallback((id: string) => run(commands.playTrack(id)), [run]);
+    const removeTrack = useCallback(
+        (id: string) => run(commands.removeTrack(id).then(() => showToast("已从播放列表移除"))),
+        [run, showToast],
+    );
+    const moveTrack = useCallback((from: number, to: number) => run(commands.moveTrack(from, to)), [run]);
+    const openImport = useCallback(() => setImportOpen(true), []);
+    const closeQueue = useCallback(() => setQueueOpen(false), []);
     useEffect(() => {
         if (notice) showToast(`无法读取 ${notice.title}，已跳过`);
     }, [notice]);
@@ -277,33 +290,32 @@ export function DesktopLayout() {
                         </div>
                     </div>
                     {current && (
-                        <LyricView
+                        <LiveLyrics
                             lines={lines}
-                            positionMs={position}
+                            preview={preview}
                             onSeek={ms => run(commands.seek(ms))}
                             className={queueOpen ? "" : "center"}
                         />
                     )}
                 </div>
                 <QueuePanel
-                    tracks={state?.tracks ?? []}
+                    tracks={state?.tracks ?? NO_TRACKS}
                     currentId={state?.currentId ?? null}
                     playing={state?.playing ?? false}
                     open={queueOpen}
                     coverRevisions={revisions}
                     locateRequest={locateRequest}
-                    onPlay={id => run(commands.playTrack(id))}
-                    onRemove={id => run(commands.removeTrack(id).then(() => showToast("已从播放列表移除")))}
-                    onMove={(from, to) => run(commands.moveTrack(from, to))}
-                    onImport={() => setImportOpen(true)}
-                    onClose={() => setQueueOpen(false)}
+                    onPlay={playTrack}
+                    onRemove={removeTrack}
+                    onMove={moveTrack}
+                    onImport={openImport}
+                    onClose={closeQueue}
                 />
             </section>
             <footer className="desktop-bar">
                 <div className="desktop-progress">
-                    <ProgressBar
+                    <LiveProgressBar
                         key={current?.id ?? "empty"}
-                        positionMs={state?.positionMs ?? 0}
                         durationMs={state?.durationMs ?? null}
                         onPreviewChange={setPreview}
                         onSeek={ms => run(commands.seek(ms))}
@@ -324,7 +336,9 @@ export function DesktopLayout() {
                         <p title={current?.artist}>{current?.artist ?? ""}</p>
                     </div>
                     <span className="desktop-time">
-                        <span>{formatTime(position)}</span>
+                        <span>
+                            <LiveTime preview={preview} />
+                        </span>
                         <span className="desktop-time-separator">/</span>
                         <span>{formatTime(state?.durationMs)}</span>
                     </span>
@@ -369,18 +383,19 @@ export function DesktopLayout() {
                         <button
                             type="button"
                             data-pop-trigger
-                            className="desktop-control-side"
-                            aria-label="音效：升降调和倍速"
-                            title="音效：升降调和倍速"
+                            className="desktop-control-side desktop-tune"
+                            aria-label="升降调和倍速"
+                            title="升降调和倍速"
                             aria-haspopup="dialog"
                             aria-expanded={popup === "tune"}
                             aria-pressed={rate !== 1 || pitch !== 0}
                             onClick={() => toggle("tune")}
                         >
-                            <Icon path={icons.sliders} />
+                            <Icon path={icons.dots} />
+                            <sup>{rate !== 1 ? `${rate.toFixed(1)}X` : ""}</sup>
                         </button>
                         {popup === "tune" && (
-                            <div className="desktop-pop" role="dialog" aria-label="音效">
+                            <div className="desktop-pop" role="dialog" aria-label="升降调和倍速">
                                 <TunePanel
                                     rate={rate}
                                     pitch={pitch}
@@ -392,13 +407,6 @@ export function DesktopLayout() {
                     </div>
                 </div>
                 <div className="desktop-right">
-                    {(rate !== 1 || pitch !== 0) && (
-                        <span className="desktop-rate">
-                            {[rate !== 1 ? `${rate.toFixed(1)}x` : "", pitch ? `${pitch > 0 ? "+" : ""}${pitch}` : ""]
-                                .filter(Boolean)
-                                .join(" ")}
-                        </span>
-                    )}
                     <button
                         type="button"
                         className="desktop-side-button desktop-lyrics-button"

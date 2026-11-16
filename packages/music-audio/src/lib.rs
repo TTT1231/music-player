@@ -14,7 +14,7 @@ use std::fmt;
 use std::io;
 use std::time::Duration;
 
-pub use decode::{decode_file, probe};
+pub use decode::{decode_file, probe, probe_file};
 #[cfg(feature = "device")]
 pub use device::DeviceOutput;
 pub use engine::{AudioSink, Engine, EngineEvent};

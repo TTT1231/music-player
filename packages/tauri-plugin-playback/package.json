@@ -1,0 +1,9 @@
+{
+    "name": "@music/tauri-plugin-playback",
+    "version": "0.0.1",
+    "private": true,
+    "scripts": {
+        "test": "cargo test -p tauri-plugin-playback",
+        "typecheck": "cargo check -p tauri-plugin-playback --tests"
+    }
+}

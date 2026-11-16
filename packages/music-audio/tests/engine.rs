@@ -87,3 +87,37 @@ fn volume_scales_samples_and_seek_starts_at_new_position() {
     engine.pull(4_410);
     assert!((engine.position().as_secs_f64() - 1.6).abs() < 0.05);
 }
+
+/// 输出里最长的一段连续静音（帧数）；用来发现参数切换时插入的空白
+fn longest_silence(samples: &[f32]) -> usize {
+    let (mut longest, mut run) = (0, 0);
+    for frame in samples.as_chunks::<2>().0 {
+        if frame.iter().all(|s| s.abs() < 1e-4) {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    longest
+}
+
+#[test]
+fn changing_rate_or_pitch_while_playing_inserts_no_gap() {
+    // 拖动倍速/升降调滑块会连续切换多档；每次切换都不能在声音里插入静音（听起来是咔哒或停顿）
+    let (mut engine, samples, _) = engine();
+    engine.play();
+    engine.pull(8_820);
+    for (rate, pitch) in [(1.1, 0), (1.2, 0), (1.3, 1), (1.0, 2), (0.9, 0), (1.0, 0)] {
+        engine.set_rate(rate);
+        engine.set_pitch(pitch);
+        engine.pull(4_410);
+    }
+    let output = samples.lock().unwrap();
+    // 正弦波过零点只有一两个采样接近 0；超过 2ms 的静音就是插入的空白
+    assert!(
+        longest_silence(&output) < 88,
+        "切换时插入了 {} 帧静音",
+        longest_silence(&output)
+    );
+}

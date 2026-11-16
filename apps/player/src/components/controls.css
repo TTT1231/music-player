@@ -185,20 +185,6 @@
     border-radius: 50%;
     background: var(--cobalt, #2440b8);
 }
-.player-tune__reset {
-    justify-self: center;
-    padding: 4px 10px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--cobalt, #2440b8);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-}
-.player-tune__reset:hover {
-    background: var(--paper-2, #e3e8e1);
-}
 .player-tune--mobile {
     min-width: 0;
     padding: 12px 24px 0;

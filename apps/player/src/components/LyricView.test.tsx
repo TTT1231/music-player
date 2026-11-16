@@ -74,3 +74,19 @@ test("re-centres the current line when the lyric area changes size", () => {
     act(() => resized?.());
     expect(scrollTo).toHaveBeenCalledOnce();
 });
+
+test("lines glide from their old place when the layout switches between left and centre", () => {
+    const { container, rerender } = render(<LyricView lines={lines} positionMs={1000} onSeek={() => {}} />);
+    const view = container.querySelector<HTMLElement>(".lyrics")!;
+    view.getBoundingClientRect = () => ({ top: 0, bottom: 600, left: 0, right: 800 }) as DOMRect;
+    const animate = vi.fn();
+    for (const line of container.querySelectorAll<HTMLElement>(".ly")) {
+        line.animate = animate;
+        // 居左时从 x=0 开始，居中后移到 x=300
+        line.getBoundingClientRect = () =>
+            ({ top: 100, bottom: 140, left: view.classList.contains("center") ? 300 : 0 }) as DOMRect;
+    }
+    rerender(<LyricView lines={lines} positionMs={1000} onSeek={() => {}} className="center" />);
+    expect(animate).toHaveBeenCalledTimes(3);
+    expect(animate.mock.calls[0][0]).toEqual([{ translate: "-300px 0px" }, { translate: "0px 0px" }]);
+});
