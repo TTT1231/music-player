@@ -186,13 +186,19 @@ pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<Impo
     }
 }
 
+/// 播放类命令先尝试恢复丢失的输出设备，仍不可用时才报错。
+fn output_ready(actor: &DeviceActor, audio: &AudioAvailability) -> Result<(), String> {
+    actor.call(|c| c.recover_output())?;
+    audio.require()
+}
+
 #[tauri::command]
 pub fn play_track(
     actor: State<'_, DeviceActor>,
     audio: State<'_, AudioAvailability>,
     id: String,
 ) -> Result<(), String> {
-    audio.require()?;
+    output_ready(&actor, &audio)?;
     actor.call(move |c| c.play_track(&id))
 }
 #[tauri::command]
@@ -201,7 +207,7 @@ pub fn remove_track(actor: State<'_, DeviceActor>, id: String) -> Result<(), Str
 }
 #[tauri::command]
 pub fn play(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    audio.require()?;
+    output_ready(&actor, &audio)?;
     actor.call(|c| c.play())
 }
 #[tauri::command]
@@ -210,22 +216,22 @@ pub fn pause(actor: State<'_, DeviceActor>) -> Result<(), String> {
 }
 #[tauri::command]
 pub fn toggle(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    audio.require()?;
+    output_ready(&actor, &audio)?;
     actor.call(|c| c.toggle())
 }
 #[tauri::command]
 pub fn next(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    audio.require()?;
+    output_ready(&actor, &audio)?;
     actor.call(|c| c.next())
 }
 #[tauri::command]
 pub fn prev(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    audio.require()?;
+    output_ready(&actor, &audio)?;
     actor.call(|c| c.prev())
 }
 #[tauri::command]
 pub fn seek(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>, ms: u64) -> Result<(), String> {
-    audio.require()?;
+    output_ready(&actor, &audio)?;
     actor.call(move |c| c.seek(ms))?
 }
 #[tauri::command]
