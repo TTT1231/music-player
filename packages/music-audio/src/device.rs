@@ -13,7 +13,10 @@ use cpal::{FromSample, SampleFormat, SizedSample, Stream};
 use crate::{AudioError, AudioSink, Engine, EngineEvent};
 
 const CHUNK_FRAMES: usize = 512;
-const BUFFER_FRAMES: usize = 4096;
+/// 约 0.35 秒（48 kHz）。解码线程是普通优先级，窗口在后台、系统繁忙或安卓熄屏时可能被推迟调度；
+/// 缓冲太小会被设备读空，空缺处补静音，听起来就是“滋滋”的断续声。
+/// 暂停、跳转和音量都直接作用于缓冲，不受长度影响；只有倍速和升降调要等已缓冲部分播完才生效。
+const BUFFER_FRAMES: usize = 16384;
 
 struct DeviceSink {
     sample_rate: u32,

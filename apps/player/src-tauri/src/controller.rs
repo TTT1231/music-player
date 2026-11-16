@@ -34,6 +34,10 @@ pub trait AudioBackend {
     fn available(&self) -> bool {
         true
     }
+    /// 输出设备丢失后重新打开当前默认设备；成功返回 true。
+    fn recover(&mut self) -> bool {
+        false
+    }
     fn load(&mut self, location: &str) -> Result<Duration, String>;
     fn play(&mut self);
     fn pause(&mut self);
@@ -402,6 +406,32 @@ impl<B: AudioBackend> Controller<B> {
         let step = self.player.on_ended();
         self.apply_step(step);
         self.changed();
+    }
+    /// 设备丢失（拔耳机、蓝牙断开、睡眠唤醒、默认设备切换）后重新打开输出，
+    /// 并把当前歌曲按原位置重新载入（保持暂停，由随后的播放命令继续）。
+    pub fn recover_output(&mut self) {
+        if self.backend.available() {
+            return;
+        }
+        let resume = self.loaded.clone().map(|id| (id, self.backend.position()));
+        if !self.backend.recover() {
+            return;
+        }
+        self.loaded = None;
+        self.backend.set_volume(self.player.volume());
+        self.backend.set_rate(self.player.rate());
+        self.backend.set_pitch(self.player.pitch());
+        let Some((id, position)) = resume else {
+            return;
+        };
+        let Some(location) = self.player.playlist().get(&id).map(|track| track.audio.clone()) else {
+            return;
+        };
+        if self.backend.load(&location).is_ok() {
+            self.loaded = Some(id);
+            let _ = self.backend.seek(position);
+            self.generation.fetch_add(1, Ordering::SeqCst);
+        }
     }
     pub fn on_device_error(&mut self, error: String) {
         self.player.pause();

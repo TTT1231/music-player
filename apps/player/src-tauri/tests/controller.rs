@@ -15,11 +15,24 @@ struct BackendState {
     position: Duration,
     unreadable: Vec<String>,
     unavailable: bool,
+    /// 设备丢失后能否重新打开输出。
+    recoverable: bool,
+    recoveries: usize,
 }
 struct FakeBackend(Arc<Mutex<BackendState>>);
 impl AudioBackend for FakeBackend {
     fn available(&self) -> bool {
         !self.0.lock().unwrap().unavailable
+    }
+    fn recover(&mut self) -> bool {
+        let mut state = self.0.lock().unwrap();
+        state.recoveries += 1;
+        if state.recoverable {
+            state.unavailable = false;
+            state.playing = false;
+            state.position = Duration::ZERO;
+        }
+        state.recoverable
     }
     fn load(&mut self, location: &str) -> Result<Duration, String> {
         let mut state = self.0.lock().unwrap();
@@ -301,6 +314,53 @@ fn unavailable_backend_cannot_leave_previous_playback_running() {
     controller.play_track(&report.added[0]);
     backend.lock().unwrap().unavailable = true;
     controller.play();
+    assert!(!backend.lock().unwrap().playing);
+    assert!(!controller.state().playing);
+}
+
+#[test]
+fn lost_output_device_is_reopened_and_resumes_the_same_song_at_the_same_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, backend) = setup(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    controller.play_track(&report.added[1]);
+    controller.seek(1500).unwrap();
+    controller.on_device_error("The requested device is no longer available.".into());
+    {
+        let mut state = backend.lock().unwrap();
+        state.unavailable = true;
+        state.recoverable = true;
+        state.loaded.clear();
+    }
+    controller.recover_output();
+    controller.play();
+    let state = backend.lock().unwrap();
+    assert_eq!(state.recoveries, 1);
+    assert_eq!(
+        state.loaded,
+        vec![paths()[1].clone()],
+        "重新打开设备后要重新载入当前歌曲"
+    );
+    assert_eq!(state.position, Duration::from_millis(1500), "从中断的位置继续");
+    assert!(state.playing);
+    drop(state);
+    assert!(controller.state().playing);
+    assert_eq!(controller.state().current_id.as_deref(), Some(report.added[1].as_str()));
+}
+
+#[test]
+fn recovery_is_skipped_while_available_and_failure_keeps_playback_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, backend) = setup(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    controller.play_track(&report.added[0]);
+    controller.recover_output();
+    assert_eq!(backend.lock().unwrap().recoveries, 0, "设备正常时不重开");
+    controller.on_device_error("lost".into());
+    backend.lock().unwrap().unavailable = true;
+    controller.recover_output();
+    controller.play();
+    assert_eq!(backend.lock().unwrap().recoveries, 1);
     assert!(!backend.lock().unwrap().playing);
     assert!(!controller.state().playing);
 }
