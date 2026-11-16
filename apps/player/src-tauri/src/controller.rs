@@ -226,6 +226,11 @@ impl<B: AudioBackend> Controller<B> {
                 .and_then(|track| track.duration_ms),
         }
     }
+    /// 读取封面等文件内容时使用；安卓位置是 content:// URI，不能当路径打开。
+    pub fn resolver(&self) -> LocationResolver {
+        Arc::clone(&self.resolver)
+    }
+
     pub fn cover_path(&self, id: &str) -> Option<PathBuf> {
         self.player
             .playlist()

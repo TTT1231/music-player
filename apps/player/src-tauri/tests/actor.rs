@@ -1,10 +1,10 @@
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use music_audio::EngineEvent;
 use music_player_shell_lib::actor::{Actor, Projection};
-use music_player_shell_lib::controller::{AudioBackend, path_resolver};
+use music_player_shell_lib::controller::{AudioBackend, LocationResolver, path_resolver};
 use music_player_shell_lib::ipc::{CoverStore, get_cover, get_cover_with, import_files};
 
 struct FakeAudio;
@@ -111,6 +111,34 @@ fn queued_end_from_previous_song_does_not_advance_the_new_song() {
         .unwrap();
     let state = actor.call(|c| c.state()).unwrap();
     assert_eq!(state.current_id.as_deref(), Some(expected.as_str()));
+    actor.shutdown();
+}
+
+#[test]
+fn cover_is_read_through_the_location_resolver_for_content_uris() {
+    let directory = tempfile::tempdir().unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../fixtures/music/Test Artist、Guest - Track One (Live).mp3");
+    // 模拟安卓：content:// URI 不是路径，只能经解析器打开
+    let resolver: LocationResolver = Arc::new(move |location| {
+        assert_eq!(location, "content://media/document/audio%3A1");
+        Ok((std::fs::File::open(&fixture)?, None))
+    });
+    let actor = Actor::spawn(
+        directory.path().join("session.json"),
+        resolver,
+        |_| Ok(FakeAudio),
+        |_| {},
+    )
+    .unwrap();
+    let file = music_core::FileRef::new(
+        "content://media/document/audio%3A1",
+        "Test Artist、Guest - Track One (Live).mp3",
+    );
+    let id = actor.call(move |c| c.import_files(vec![file])).unwrap().added.remove(0);
+    let covers = CoverStore::default();
+    let cover = get_cover(&actor, &covers, id).expect("cover read via resolver");
+    assert_eq!(cover.mime, "image/png");
     actor.shutdown();
 }
 

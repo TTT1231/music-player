@@ -31,8 +31,10 @@ pub struct CoverStore {
 }
 
 pub fn get_cover<B: AudioBackend + 'static>(actor: &Actor<B>, store: &CoverStore, id: String) -> Option<Cover> {
-    get_cover_with(actor, store, id, |path| {
-        music_audio::probe(path).ok().and_then(|media| media.cover)
+    let resolver = actor.call(|controller| controller.resolver()).ok()?;
+    get_cover_with(actor, store, id, move |path| {
+        let (file, ext) = resolver(path.to_str()?).ok()?;
+        music_audio::probe_file(file, ext.as_deref()).ok()?.cover
     })
 }
 
