@@ -80,7 +80,7 @@ export function LyricView({ lines, positionMs, onSeek, className = "" }: LyricVi
         [],
     );
 
-    // 布局变化（收起队列、调整窗口、换行数改变）后重新把当前行放回原位，与原型一致
+    // 布局变化（收起队列、调整窗口、换行数改变）后重新把当前行放回原位
     useEffect(() => {
         const view = container.current;
         if (!view || typeof ResizeObserver === "undefined") return;

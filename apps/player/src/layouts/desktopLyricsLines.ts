@@ -15,7 +15,7 @@ export type DesktopLyricLine = {
 
 const hidden: DesktopLyricLine = { text: "", idle: false, solo: false, k: 0 };
 
-/** 桌面歌词窗口的两行内容；逻辑逐条对照原型 core.js / desktop.html 的 renderDesk 与 activeLine。 */
+/** 桌面歌词窗口的两行内容：应用名、前奏提示、纯音乐提示和两行交替的歌词。 */
 export function desktopLyricsLines(input: {
     title: string | null;
     artist: string;
@@ -31,7 +31,7 @@ export function desktopLyricsLines(input: {
     if (!input.hasLyrics) return solo(INSTRUMENTAL);
     const lines = input.lines;
     if (!lines.length) return solo(`${input.title} - ${input.artist}`);
-    // 原型 activeLine：提前 0.15s 进入下一行
+    // 提前 0.15s 进入下一行，换行时视觉上不显得迟
     const time = input.positionMs + 150;
     let active = -1;
     for (let index = 0; index < lines.length && lines[index].timeMs <= time; index++) active = index;

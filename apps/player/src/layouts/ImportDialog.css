@@ -1,4 +1,4 @@
-/* 导入对话框：从 design/preview/desktop.html 移植。一眼就知道怎么做：大按钮、大字、不解释。 */
+/* 导入对话框：一眼就知道怎么做：大按钮、大字、不解释。 */
 .import-backdrop {
     --ink: #1c2629;
     --muted: #5b6764;

@@ -1,4 +1,4 @@
-/* 安卓布局：从 design/preview/mobile.html 移植；组件样式在各自文件。 */
+/* 安卓布局：首页播放列表、播放页、导入页和底部弹层；组件样式在各自文件。 */
 :where(.android) {
     height: 100%;
     display: flex;
@@ -242,7 +242,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    /* 原型的 28px 底距含手机的手势条区域；真机已让开导航栏，只补足差额 */
+    /* 与屏幕底边保持约 28px；导航栏高度已由根元素让开，这里只补足差额 */
     margin: 0 12px max(12px, calc(28px - env(safe-area-inset-bottom, 0px)));
     padding: 8px;
     border-radius: 16px;
@@ -423,7 +423,7 @@
 .np-rate .m-icon {
     width: 22px;
     height: 22px;
-    /* 两个圆点与原型的实心圆（直径约 3.4）大小一致 */
+    /* 线宽 3.4：两个圆点呈直径约 3.4 的实心圆 */
     stroke-width: 3.4;
 }
 .np-rate sup {

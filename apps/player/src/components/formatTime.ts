@@ -1,6 +1,6 @@
 export type TimeVariant = "desktop" | "mobile";
 
-/** 毫秒转为原型中的时间格式；未知时长在移动端显示占位。 */
+/** 毫秒转为“mm:ss”；未知时长在移动端显示占位。 */
 export function formatTime(milliseconds: number | null | undefined, variant: TimeVariant = "desktop"): string {
     if (milliseconds == null || !Number.isFinite(milliseconds)) {
         return variant === "mobile" ? "--:--" : "00:00";

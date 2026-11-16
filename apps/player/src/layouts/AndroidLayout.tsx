@@ -36,12 +36,12 @@ const icons = {
     next: "M16.8 5H19v14h-2.2zM4 6.2v11.6a.8.8 0 0 0 1.2.7L14 12.7a.8.8 0 0 0 0-1.4L5.2 5.5A.8.8 0 0 0 4 6.2z",
     close: "M6 6l12 12M18 6 6 18",
     down: "M5 9l7 7 7-7",
-    // 原型为竖排两点“⋮”
+    // 竖排两点“⋮”
     dots: "M12 7.5h.01M12 16.5h.01",
     queue: "M4 6h16M4 11h16M4 16h8M15.5 14l5 3-5 3z",
     plus: "M12 5v14M5 12h14",
     back: "M19 12H5M12 19l-7-7 7-7",
-    // 原型的音符是 path + 两个 circle；Icon 只画一个 path，圆用两段弧表示
+    // 音符的两个圆头用两段弧画出：Icon 只画一个 path
     note: "M9 18V6l11-2v12M4 18a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M15 16a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0",
     folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
     search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.35-4.35",
@@ -198,7 +198,7 @@ export function AndroidLayout() {
             setImportBusy(false);
         }
     };
-    // 去听歌：回到播放列表并滚到第一首导入的歌，不自动播放（与原型一致）
+    // 去听歌：回到播放列表并滚到第一首导入的歌，不自动播放
     const goListen = () => {
         setLocate(importResult?.added[0] ?? null);
         setImportResult(null);

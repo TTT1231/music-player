@@ -1,4 +1,4 @@
-/* 桌面歌词窗口：从 design/preview/desktop.html 的 .desk 移植；窗口本体透明，悬停显出半透明底。 */
+/* 桌面歌词窗口：窗口本体透明，悬停显出半透明底和工具栏。 */
 .desk {
     --lyric: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
     --fs: 32px;

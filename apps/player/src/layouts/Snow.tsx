@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-/** 飘雪画布高度：与原型一致（上淡入、控制区上方淡出由外层遮罩负责）。 */
+/** 飘雪画布高度（上淡入、控制区上方淡出由外层遮罩负责）。 */
 const SPRITE_SIZE = 64;
 
 type Flake = {

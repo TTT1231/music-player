@@ -1,4 +1,4 @@
-/* 桌面布局：从 design/preview/desktop.html 移植；队列、导入对话框、组件样式在各自文件。 */
+/* 桌面布局：舞台、歌词和底栏；队列、导入对话框、组件样式在各自文件。 */
 .desktop {
     --qw: 414px;
     --pl: clamp(48px, 11vw, 160px);

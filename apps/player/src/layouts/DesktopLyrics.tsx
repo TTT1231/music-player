@@ -59,7 +59,7 @@ export function DesktopLyrics() {
         durationMs: state?.durationMs ?? null,
     });
 
-    // 原型 .desk 高度随内容自动伸缩；真实窗口里对应为内容变化后把窗口高度贴合内容
+    // 歌词区高度随内容（行数、字号）变化，窗口高度跟着贴合内容
     useLayoutEffect(() => {
         const element = desk.current;
         if (!element) return;

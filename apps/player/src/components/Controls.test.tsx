@@ -131,7 +131,7 @@ test("提示自动消失并可重新提示", () => {
     expect(screen.getByRole("status").textContent).toBe("随机播放");
 });
 
-test("按桌面和手机原型格式显示时间", () => {
+test("按桌面和手机的格式显示时间", () => {
     expect(formatTime(61_999)).toBe("01:01");
     expect(formatTime(61_999, "mobile")).toBe("1:01");
     expect(formatTime(null, "mobile")).toBe("--:--");

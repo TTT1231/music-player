@@ -210,7 +210,7 @@ export function DesktopLayout() {
     useEffect(() => {
         if (popup === "volume") slider.current?.focus();
     }, [popup]);
-    // 弹层相对触发按钮居中；超出底栏时向内收回，与底栏两端保持 8px（与原型一致）
+    // 弹层相对触发按钮居中；超出底栏时向内收回，与底栏两端保持 8px
     useLayoutEffect(() => {
         if (!popup) return;
         const clamp = () => {

@@ -57,7 +57,7 @@ test("当前行按奇偶交替落到两行，下一行以空闲样式预告", ()
 test("当前行的着色进度按行内时间推进，并限制在 0–1", () => {
     // 第一句 1s–3s：2s 处应着色一半
     expect(desktopLyricsLines({ ...base, positionMs: 2_000 }).a.k).toBeCloseTo(0.5);
-    // 原型提前 0.15s 进入下一行：2.84s 时第一句仍是当前行
+    // 提前 0.15s 进入下一行：2.84s 时第一句仍是当前行
     expect(desktopLyricsLines({ ...base, positionMs: 2_840 }).a.k).toBeCloseTo(0.92);
     // 超出时长后最后一行的着色进度封顶为 1
     expect(desktopLyricsLines({ ...base, positionMs: 10_500 }).a.k).toBe(1);

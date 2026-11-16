@@ -136,7 +136,7 @@ test("队列可收起和展开，歌词随之居中", () => {
     expect(screen.getByRole("complementary", { name: "播放队列" })).toBeTruthy();
 });
 
-test("模式、音效和音量弹层可操作并可用 Esc 关闭", () => {
+test("模式、升降调/倍速和音量弹层可操作并可用 Esc 关闭", () => {
     render(<DesktopLayout />);
     fireEvent.click(screen.getByRole("button", { name: "播放模式：列表循环" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "随机播放" }));
@@ -165,7 +165,7 @@ test("空格只在非输入控件触发播放，导入对话框可用 Esc 关闭
     expect(screen.queryByRole("dialog", { name: "导入音乐" })).toBeNull();
 });
 
-test("无当前歌曲时显示原型空状态", () => {
+test("无当前歌曲时显示空状态", () => {
     mocks.state = { ...state, tracks: [], currentId: null };
     render(<DesktopLayout />);
     expect(screen.getByText("选一首歌开始")).toBeTruthy();
