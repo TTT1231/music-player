@@ -1,9 +1,5 @@
-#[path = "../src/controller.rs"]
-#[allow(dead_code)]
-mod controller;
-
-use controller::{AudioBackend, Controller, ControllerEvent, path_resolver};
 use music_core::PlayMode;
+use music_player_shell_lib::controller::{AudioBackend, Controller, ControllerEvent, path_resolver};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
 use std::time::Duration;
@@ -18,6 +14,7 @@ struct BackendState {
     /// 设备丢失后能否重新打开输出。
     recoverable: bool,
     recoveries: usize,
+    release_when_paused: bool,
 }
 struct FakeBackend(Arc<Mutex<BackendState>>);
 impl AudioBackend for FakeBackend {
@@ -33,6 +30,14 @@ impl AudioBackend for FakeBackend {
             state.position = Duration::ZERO;
         }
         state.recoverable
+    }
+    fn release_idle(&mut self) -> bool {
+        let mut state = self.0.lock().unwrap();
+        if state.release_when_paused && !state.unavailable {
+            state.unavailable = true;
+            return true;
+        }
+        false
     }
     fn load(&mut self, location: &str) -> Result<Duration, String> {
         let mut state = self.0.lock().unwrap();
@@ -349,6 +354,33 @@ fn lost_output_device_is_reopened_and_resumes_the_same_song_at_the_same_position
 }
 
 #[test]
+fn paused_player_releases_idle_output_and_resumes_at_its_previous_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, backend) = setup(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    {
+        let mut state = backend.lock().unwrap();
+        state.release_when_paused = true;
+        state.recoverable = true;
+    }
+    controller.play_track(&report.added[0]);
+    controller.seek(700).unwrap();
+    controller.poll().unwrap();
+    assert!(!backend.lock().unwrap().unavailable);
+    controller.pause();
+    controller.poll().unwrap();
+    assert!(backend.lock().unwrap().unavailable);
+    assert_eq!(controller.state().position_ms, 700);
+
+    controller.recover_output();
+    controller.play();
+    let state = controller.state();
+    assert!(state.playing);
+    assert_eq!(state.position_ms, 700);
+    assert_eq!(state.current_id.as_deref(), Some(report.added[0].as_str()));
+}
+
+#[test]
 fn recovery_is_skipped_while_available_and_failure_keeps_playback_stopped() {
     let dir = tempfile::tempdir().unwrap();
     let (mut controller, backend) = setup(&dir.path().join("session.json"));
@@ -366,14 +398,18 @@ fn recovery_is_skipped_while_available_and_failure_keeps_playback_stopped() {
 }
 
 #[test]
-fn cover_url_uses_the_platforms_tauri_protocol_origin() {
+fn cover_url_encodes_the_track_id_for_the_platform_protocol() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _) = setup(&dir.path().join("session.json"));
+    controller.import_files(vec![music_core::FileRef::new("song.mp3", "歌曲 %.mp3")]);
+    let origin = if cfg!(any(target_os = "windows", target_os = "android")) {
+        "http://cover.localhost/"
+    } else {
+        "cover://localhost/"
+    };
     assert_eq!(
-        controller::cover_url_for("歌曲 %", true),
-        "http://cover.localhost/%E6%AD%8C%E6%9B%B2%20%25"
-    );
-    assert_eq!(
-        controller::cover_url_for("歌曲 %", false),
-        "cover://localhost/%E6%AD%8C%E6%9B%B2%20%25"
+        controller.state().tracks[0].cover_url,
+        format!("{origin}%E6%AD%8C%E6%9B%B2%20%25")
     );
 }
 

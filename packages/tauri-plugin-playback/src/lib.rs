@@ -51,6 +51,12 @@ pub fn open_fd<R: Runtime>(app: &tauri::AppHandle<R>, uri: &str) -> Result<i32> 
     app.state::<Playback<R>>().open_fd(uri.to_owned())
 }
 
+/// 删除已安全落入播放器曲库的源文档。文件提供程序可以拒绝删除。
+#[cfg(mobile)]
+pub fn delete_source<R: Runtime>(app: &tauri::AppHandle<R>, uri: &str) -> Result<()> {
+    app.state::<Playback<R>>().delete_source(uri.to_owned())
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("playback")
         .invoke_handler(tauri::generate_handler![
@@ -109,6 +115,10 @@ mod mobile {
 
         pub fn open_fd(&self, uri: String) -> crate::Result<i32> {
             Ok(self.0.run_mobile_plugin::<FdResponse>("openFd", UriPayload { uri })?.fd)
+        }
+
+        pub fn delete_source(&self, uri: String) -> crate::Result<()> {
+            Ok(self.0.run_mobile_plugin::<()>("deleteSource", UriPayload { uri })?)
         }
 
         pub fn update_state(&self, state: StatePayload) -> crate::Result<()> {

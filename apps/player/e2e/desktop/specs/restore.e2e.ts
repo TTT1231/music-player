@@ -1,6 +1,6 @@
 import { expect } from "@wdio/globals";
 import { browser } from "@wdio/globals";
-import { currentTitle, importFixtures, queueRows } from "../helpers";
+import { currentTitle, importFixtures, queueRows, waitForApp } from "../helpers";
 
 describe("重启后恢复", () => {
     it("恢复播放列表及顺序、上次的歌曲（暂停状态）、播放模式和音量", async () => {
@@ -50,10 +50,7 @@ describe("重启后恢复", () => {
         await browser.pause(1500);
 
         await browser.reloadSession();
-        await browser.waitUntil(async () => await browser.execute(() => Boolean(document.querySelector(".desktop"))), {
-            timeout: 30_000,
-            timeoutMsg: "重启后应用窗口未就绪",
-        });
+        await waitForApp();
         await browser.waitUntil(async () => (await queueRows()).length === order.length, {
             timeoutMsg: "重启后列表未恢复",
         });

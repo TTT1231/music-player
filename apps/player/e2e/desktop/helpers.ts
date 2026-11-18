@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { browser } from "@wdio/globals";
@@ -11,6 +11,13 @@ export const shellExe = path.resolve(here, "../../../../target/debug/music-playe
 export const fixturesDir = path.resolve(here, "../../../../fixtures/music");
 /** 运行级临时数据目录（MUSIC_DATA_DIR），经 tauri-driver 的环境继承给被测应用 */
 export const dataDir = path.resolve(here, "../../../../target/e2e-data");
+export const inputDir = path.join(dataDir, "import-input");
+const webviewDir = path.resolve(dataDir, "../e2e-webview");
+
+export function stageFixtures(): string {
+    cpSync(fixturesDir, inputDir, { recursive: true });
+    return inputDir;
+}
 
 export const driverPort = 4444;
 export const nativeDriverPort = 9515;
@@ -22,7 +29,12 @@ export function startDrivers(nativeDriverPath: string): ChildProcess {
         ["--port", String(driverPort), "--native-port", String(nativeDriverPort), "--native-driver", nativeDriverPath],
         {
             stdio: "inherit",
-            env: { ...process.env, MUSIC_DATA_DIR: dataDir, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "" },
+            env: {
+                ...process.env,
+                MUSIC_DATA_DIR: dataDir,
+                WEBVIEW2_USER_DATA_FOLDER: webviewDir,
+                WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "",
+            },
         },
     );
 }
@@ -37,10 +49,11 @@ export function clearDataDir(): void {
 
 /** 等待应用窗口就绪（主布局渲染完成） */
 export async function waitForApp(): Promise<void> {
-    await browser.waitUntil(async () => await browser.execute(() => Boolean(document.querySelector(".desktop"))), {
-        timeout: 30_000,
-        timeoutMsg: "应用窗口未就绪",
-    });
+    await browser.waitUntil(
+        () =>
+            browser.execute(() => location.origin === "http://tauri.localhost" && !!document.querySelector(".desktop")),
+        { timeout: 30_000, timeoutMsg: "应用窗口未就绪" },
+    );
 }
 
 /** 通过应用自身的导入命令导入 fixtures 文件夹 */
@@ -52,7 +65,7 @@ export async function importFixtures(): Promise<{ added: string[]; withLyrics: n
                     __TAURI_INTERNALS__: { invoke: (cmd: string, args: unknown) => Promise<unknown> };
                 }
             ).__TAURI_INTERNALS__.invoke("import_paths", { paths: [dir] }),
-        fixturesDir,
+        stageFixtures(),
     )) as { added: string[]; withLyrics: number };
     await browser.waitUntil(async () => (await queueRows()).length === result.added.length, {
         timeout: 15_000,

@@ -14,6 +14,9 @@ use crate::actor::Actor;
 use crate::audio_backend::{AudioAvailability, DeviceBackend};
 use crate::controller::{AudioBackend, Controller, ImportResult, PlayerState};
 use crate::cover::CoverCache;
+use crate::library_files::LibraryFiles;
+#[cfg(desktop)]
+use crate::library_files::files_from_paths;
 
 pub type DeviceActor = Actor<DeviceBackend>;
 
@@ -125,18 +128,40 @@ pub fn app_info() -> AppInfo {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_state(actor: State<'_, DeviceActor>) -> Result<PlayerState, String> {
     actor.call(|controller| controller.state())
 }
 
-#[tauri::command]
-pub fn import_paths(
-    actor: State<'_, DeviceActor>,
-    store: State<'_, CoverStore>,
-    paths: Vec<String>,
+#[tauri::command(async)]
+pub fn import_paths(app: AppHandle, paths: Vec<String>) -> Result<ImportResult, String> {
+    #[cfg(desktop)]
+    {
+        let files = files_from_paths(&paths).map_err(|error| error.to_string())?;
+        import_managed(&app, files, |location| std::fs::remove_file(location))
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, paths);
+        Err("请通过系统文件选择器导入".into())
+    }
+}
+
+fn import_managed(
+    app: &AppHandle,
+    files: Vec<music_core::FileRef>,
+    remove_source: impl Fn(&str) -> std::io::Result<()> + Send + 'static,
 ) -> Result<ImportResult, String> {
-    import_files(&actor, &store, paths)
+    let library = app.state::<LibraryFiles>().inner().clone();
+    import_with(
+        &app.state::<DeviceActor>(),
+        &app.state::<CoverStore>(),
+        move |controller| {
+            controller
+                .import_managed(files, &library, remove_source)
+                .map_err(|error| error.to_string())
+        },
+    )
 }
 
 #[tauri::command]
@@ -159,7 +184,7 @@ pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<Impo
                     .map_err(|error| error.to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        import_files(&app.state::<DeviceActor>(), &app.state::<CoverStore>(), paths).map(Some)
+        import_paths(app, paths).map(Some)
     }
     // 安卓：系统文件选择器返回内容 URI 和显示名；URI 本身不含文件名，配对和歌名都要用显示名
     #[cfg(mobile)]
@@ -177,80 +202,84 @@ pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<Impo
             .into_iter()
             .map(|file| music_core::FileRef::new(file.uri, file.name))
             .collect();
-        import_with(
-            &app.state::<DeviceActor>(),
-            &app.state::<CoverStore>(),
-            move |controller| Ok(controller.import_files(files)),
-        )
+        let handle = app.clone();
+        import_managed(&app, files, move |uri| {
+            tauri_plugin_playback::delete_source(&handle, uri).map_err(std::io::Error::other)
+        })
         .map(Some)
     }
 }
 
-/// 播放类命令先尝试恢复丢失的输出设备，仍不可用时才报错。
-fn output_ready(actor: &DeviceActor, audio: &AudioAvailability) -> Result<(), String> {
-    actor.call(|c| c.recover_output())?;
-    audio.require()
+/// 打开设备与操作在同一条消息内执行，避免空闲设备在两者之间被释放。
+fn with_output<T: Send + 'static>(
+    actor: &DeviceActor,
+    audio: &AudioAvailability,
+    action: impl FnOnce(&mut Controller<DeviceBackend>) -> T + Send + 'static,
+) -> Result<T, String> {
+    let audio = audio.clone();
+    actor.call(move |controller| {
+        controller.recover_output();
+        audio.require()?;
+        Ok(action(controller))
+    })?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn play_track(
     actor: State<'_, DeviceActor>,
     audio: State<'_, AudioAvailability>,
     id: String,
 ) -> Result<(), String> {
-    output_ready(&actor, &audio)?;
-    actor.call(move |c| c.play_track(&id))
+    with_output(&actor, &audio, move |c| c.play_track(&id))
 }
-#[tauri::command]
-pub fn remove_track(actor: State<'_, DeviceActor>, id: String) -> Result<(), String> {
-    actor.call(move |c| c.remove_track(&id))
+#[tauri::command(async)]
+pub fn remove_track(actor: State<'_, DeviceActor>, library: State<'_, LibraryFiles>, id: String) -> Result<(), String> {
+    let library = library.inner().clone();
+    actor
+        .call(move |c| c.remove_managed(&id, &library))?
+        .map_err(|error| error.to_string())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn play(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    output_ready(&actor, &audio)?;
-    actor.call(|c| c.play())
+    with_output(&actor, &audio, Controller::play)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pause(actor: State<'_, DeviceActor>) -> Result<(), String> {
     actor.call(|c| c.pause())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn toggle(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    output_ready(&actor, &audio)?;
-    actor.call(|c| c.toggle())
+    with_output(&actor, &audio, Controller::toggle)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn next(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    output_ready(&actor, &audio)?;
-    actor.call(|c| c.next())
+    with_output(&actor, &audio, Controller::next)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn prev(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>) -> Result<(), String> {
-    output_ready(&actor, &audio)?;
-    actor.call(|c| c.prev())
+    with_output(&actor, &audio, Controller::prev)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn seek(actor: State<'_, DeviceActor>, audio: State<'_, AudioAvailability>, ms: u64) -> Result<(), String> {
-    output_ready(&actor, &audio)?;
-    actor.call(move |c| c.seek(ms))?
+    with_output(&actor, &audio, move |c| c.seek(ms))?
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_mode(actor: State<'_, DeviceActor>, mode: PlayMode) -> Result<(), String> {
     actor.call(move |c| c.set_mode(mode))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_volume(actor: State<'_, DeviceActor>, volume: f32) -> Result<(), String> {
     actor.call(move |c| c.set_volume(volume))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_rate(actor: State<'_, DeviceActor>, rate: f32) -> Result<f32, String> {
     actor.call(move |c| c.set_rate(rate))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_pitch(actor: State<'_, DeviceActor>, semitones: i8) -> Result<i8, String> {
     actor.call(move |c| c.set_pitch(semitones))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn move_track(actor: State<'_, DeviceActor>, from: usize, to: usize) -> Result<(), String> {
     actor.call(move |c| c.move_track(from, to))
 }
@@ -277,7 +306,7 @@ pub fn lyrics_response(lyrics: Lyrics) -> LyricsResponse {
             .collect(),
     }
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_lyrics(actor: State<'_, DeviceActor>, id: String) -> Result<LyricsResponse, String> {
     actor
         .call(move |c| c.lyrics(&id))?

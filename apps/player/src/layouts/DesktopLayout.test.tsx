@@ -175,6 +175,12 @@ test("无当前歌曲时显示空状态", () => {
 test("从播放列表移除后显示轻提示", async () => {
     render(<DesktopLayout />);
     fireEvent.click(screen.getByRole("button", { name: "从播放列表移除" }));
+    expect(screen.getByRole("alertdialog", { name: "移除歌曲" })).toBeTruthy();
+    expect(mocks.commands.removeTrack).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(mocks.commands.removeTrack).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "从播放列表移除" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
     await waitFor(() => expect(mocks.commands.removeTrack).toHaveBeenCalledExactlyOnceWith("track"));
     expect(await screen.findByText("已从播放列表移除")).toBeTruthy();
 });
@@ -204,6 +210,7 @@ test("拖入文件即打开导入对话框，放下后导入拖入的路径", as
 test("移除提示之后，新的无法读取提示仍能显示", async () => {
     const view = render(<DesktopLayout />);
     fireEvent.click(screen.getByRole("button", { name: "从播放列表移除" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
     expect(await screen.findByText("已从播放列表移除")).toBeTruthy();
     mocks.notice = { kind: "unreadable", title: "损坏.mp3" };
     view.rerender(<DesktopLayout />);

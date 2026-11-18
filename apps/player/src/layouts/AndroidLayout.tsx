@@ -3,9 +3,11 @@ import { Cover } from "../components/Cover";
 import { LiveFill, LiveLyrics, LiveProgressBar, LiveTime } from "../components/Live";
 import { type LyricLine } from "../components/LyricView";
 import { MODES } from "../components/ModeMenu";
+import { RemoveTrackDialog } from "../components/RemoveTrackDialog";
 import { Toast } from "../components/Toast";
 import { TunePanel } from "../components/TunePanel";
 import { formatTime } from "../components/formatTime";
+import { importSummary } from "../components/importSummary";
 import {
     commands,
     listenPlaybackEvents,
@@ -60,6 +62,7 @@ export function AndroidLayout() {
     const [importResult, setImportResult] = useState<ImportResult | null>(null);
     const [importBusy, setImportBusy] = useState(false);
     const [locate, setLocate] = useState<string | null>(null);
+    const [removalId, setRemovalId] = useState<string | null>(null);
     useEffect(() => {
         if (view !== "list" || !locate) return;
         const row = document.querySelector<HTMLElement>(`.m-row[data-id="${CSS.escape(locate)}"]`);
@@ -70,6 +73,7 @@ export function AndroidLayout() {
 
     const playing = state?.playing ?? false;
     const current = state?.tracks.find((track: TrackView) => track.id === state.currentId);
+    const pendingRemoval = state?.tracks.find(track => track.id === removalId);
     const mode = MODES.find(item => item.id === state?.mode) ?? MODES[1];
     const q = query.trim().toLowerCase();
     const visible = (state?.tracks ?? []).filter(
@@ -144,7 +148,8 @@ export function AndroidLayout() {
     // 系统返回键在应用内逐级返回：关弹层 → 回列表 → 清空搜索 → 退到后台（不关闭应用，音乐继续）
     const back = useRef(() => {});
     back.current = () => {
-        if (sheet) setSheet(null);
+        if (pendingRemoval) setRemovalId(null);
+        else if (sheet) setSheet(null);
         else if (view !== "list") setView("list");
         else if (query) setQuery("");
         else run(commands.moveToBackground());
@@ -286,15 +291,7 @@ export function AndroidLayout() {
                                             className="m-del"
                                             aria-label={`从播放列表移除：${track.title}`}
                                             title="从播放列表移除"
-                                            onClick={() =>
-                                                run(
-                                                    commands
-                                                        .removeTrack(track.id)
-                                                        .then(() =>
-                                                            showToast("已从播放列表移除", <Icon path={icons.check} />),
-                                                        ),
-                                                )
-                                            }
+                                            onClick={() => setRemovalId(track.id)}
                                         >
                                             <Icon path={icons.close} />
                                         </button>
@@ -485,18 +482,7 @@ export function AndroidLayout() {
                                                         type="button"
                                                         className="ls-del"
                                                         aria-label={`从播放列表移除：${track.title}`}
-                                                        onClick={() =>
-                                                            run(
-                                                                commands
-                                                                    .removeTrack(track.id)
-                                                                    .then(() =>
-                                                                        showToast(
-                                                                            "已从播放列表移除",
-                                                                            <Icon path={icons.check} />,
-                                                                        ),
-                                                                    ),
-                                                            )
-                                                        }
+                                                        onClick={() => setRemovalId(track.id)}
                                                     >
                                                         <Icon path={icons.close} />
                                                     </button>
@@ -550,17 +536,7 @@ export function AndroidLayout() {
                         </button>
                         {importResult && (
                             <div className="imp-done" role="status">
-                                <p>
-                                    {importResult.added.length
-                                        ? `已导入 ${importResult.added.length} 首${
-                                              importResult.withLyrics + importResult.lyricsAttached
-                                                  ? `，${importResult.withLyrics + importResult.lyricsAttached} 首有歌词`
-                                                  : ""
-                                          }`
-                                        : importResult.lyricsAttached
-                                          ? `已为 ${importResult.lyricsAttached} 首歌加上歌词`
-                                          : "没有找到歌曲，请重新选择"}
-                                </p>
+                                <p>{importSummary(importResult)}</p>
                                 {imported && (
                                     <button type="button" className="imp-btn primary" onClick={goListen}>
                                         去听歌
@@ -570,6 +546,20 @@ export function AndroidLayout() {
                         )}
                     </div>
                 </>
+            )}
+            {pendingRemoval && (
+                <RemoveTrackDialog
+                    track={pendingRemoval}
+                    onCancel={() => setRemovalId(null)}
+                    onConfirm={() => {
+                        setRemovalId(null);
+                        run(
+                            commands.removeTrack(pendingRemoval.id).then(() => {
+                                showToast("已从播放列表移除", <Icon path={icons.check} />);
+                            }),
+                        );
+                    }}
+                />
             )}
         </main>
     );

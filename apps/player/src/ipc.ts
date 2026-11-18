@@ -29,6 +29,8 @@ export type ImportResult = {
     withLyrics: number;
     lyricsAttached: number;
     orphanLyrics: number;
+    duplicates: number;
+    sourcesKept: number;
 };
 export type Lyrics = { lines: { timeMs: number; text: string }[] };
 export type Position = { ms: number };

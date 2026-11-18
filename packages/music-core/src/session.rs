@@ -1,4 +1,5 @@
 use std::io;
+use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -43,7 +44,10 @@ pub fn save_session(path: &Path, session: &Session) -> io::Result<()> {
     let json = serde_json::to_vec_pretty(session).map_err(io::Error::other)?;
     let mut temp = path.as_os_str().to_owned();
     temp.push(".tmp");
-    std::fs::write(&temp, json)?;
+    let mut file = std::fs::File::create(&temp)?;
+    file.write_all(&json)?;
+    file.sync_all()?;
+    drop(file);
     std::fs::rename(&temp, path)
 }
 

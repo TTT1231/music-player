@@ -37,50 +37,31 @@ pub struct DeviceBackend {
     error: Option<String>,
     availability: AudioAvailability,
     resolver: LocationResolver,
+    idle_position: Duration,
 }
 
 impl DeviceBackend {
-    pub fn open(
+    pub fn new(
         callback: impl FnMut(EngineEvent) + Send + 'static,
         availability: AudioAvailability,
         resolver: LocationResolver,
     ) -> Self {
-        let callback: SharedCallback = Arc::new(Mutex::new(Box::new(callback)));
-        match DeviceOutput::open(forward(&callback)) {
-            Ok(output) => Self {
-                output: Some(output),
-                callback,
-                error: None,
-                availability,
-                resolver,
-            },
-            Err(error) => {
-                availability.set_error(Some(error.clone()));
-                Self {
-                    output: None,
-                    callback,
-                    error: Some(error),
-                    availability,
-                    resolver,
-                }
-            }
+        Self {
+            output: None,
+            callback: Arc::new(Mutex::new(Box::new(callback))),
+            error: None,
+            availability,
+            resolver,
+            idle_position: Duration::ZERO,
         }
     }
 
     pub fn unavailable(error: String) -> Self {
         let availability = AudioAvailability::default();
         availability.set_error(Some(error.clone()));
-        Self {
-            output: None,
-            callback: Arc::new(Mutex::new(Box::new(|_| {}))),
-            error: Some(error),
-            availability,
-            resolver: Arc::new(|location| {
-                let path = std::path::PathBuf::from(location);
-                let ext = path.extension().and_then(|ext| ext.to_str()).map(str::to_owned);
-                Ok((std::fs::File::open(&path)?, ext))
-            }),
-        }
+        let mut device = Self::new(|_| {}, availability, crate::controller::path_resolver());
+        device.error = Some(error);
+        device
     }
 
     pub fn error(&self) -> Option<&str> {
@@ -94,6 +75,7 @@ impl AudioBackend for DeviceBackend {
     }
     fn recover(&mut self) -> bool {
         // 先关闭失效的流，再按当前默认设备重开（设备可能已换成扬声器或新的耳机）
+        self.idle_position = self.position();
         self.output = None;
         match DeviceOutput::open(forward(&self.callback)) {
             Ok(output) => {
@@ -108,6 +90,16 @@ impl AudioBackend for DeviceBackend {
                 false
             }
         }
+    }
+    fn release_idle(&mut self) -> bool {
+        // 安卓在后台可能暂停空闲设备流；下次播放时用新流从原位置继续。
+        if cfg!(target_os = "android")
+            && let Some(output) = self.output.take()
+        {
+            self.idle_position = output.position();
+            return true;
+        }
+        false
     }
     fn load(&mut self, location: &str) -> Result<Duration, String> {
         self.availability.require()?;
@@ -150,6 +142,6 @@ impl AudioBackend for DeviceBackend {
         }
     }
     fn position(&self) -> Duration {
-        self.output.as_ref().map_or(Duration::ZERO, DeviceOutput::position)
+        self.output.as_ref().map_or(self.idle_position, DeviceOutput::position)
     }
 }

@@ -9,10 +9,10 @@ afterEach(() => {
     clearMocks();
 });
 
-test("renders the initial empty player", () => {
+test("renders a status while the player starts", () => {
     const { container } = render(<App />);
     expect(container.querySelector("main")).not.toBeNull();
-    expect(container.textContent).toBe("");
+    expect(container.textContent).toBe("正在打开播放器…");
 });
 
 test("allows component tests to mock Tauri commands", async () => {

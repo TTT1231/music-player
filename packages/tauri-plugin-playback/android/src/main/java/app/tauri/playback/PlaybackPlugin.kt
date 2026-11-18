@@ -72,13 +72,15 @@ class PlaybackPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** 选择歌曲和歌词（可多选）。返回每个文件的 URI 和显示名，并申请持久读取授权。 */
+    /** 选择歌曲和歌词（可多选）。返回导入期间可读取的 URI 和显示名。 */
     @Command
     fun pickFiles(invoke: Invoke) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         }
         // 必须经插件启动，结果才会回到 @ActivityCallback
         startActivityForResult(invoke, intent, "onPickFilesResult")
@@ -87,7 +89,10 @@ class PlaybackPlugin(private val activity: Activity) : Plugin(activity) {
     /** 选择文件夹。返回其中（含子文件夹）全部文件的 URI 和文件名。 */
     @Command
     fun pickFolder(invoke: Invoke) {
-        startActivityForResult(invoke, Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), "onPickFolderResult")
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        startActivityForResult(invoke, intent, "onPickFolderResult")
     }
 
     @ActivityCallback
@@ -103,7 +108,6 @@ class PlaybackPlugin(private val activity: Activity) : Plugin(activity) {
         if (uris.isEmpty()) data.data?.let(uris::add)
         val out = JSArray()
         for (uri in uris) {
-            persist(uri)
             out.put(entry(uri, displayName(uri)))
         }
         invoke.resolve(files(out))
@@ -116,7 +120,6 @@ class PlaybackPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(files(JSArray()))
             return
         }
-        persist(tree)
         // 大文件夹遍历可能较慢，放到后台线程，避免卡住界面
         Thread {
             try {
@@ -141,6 +144,20 @@ class PlaybackPlugin(private val activity: Activity) : Plugin(activity) {
             } ?: invoke.reject("无法打开文件")
         } catch (e: Exception) {
             invoke.reject(e.message ?: "打开文件失败", e)
+        }
+    }
+
+    @Command
+    fun deleteSource(invoke: Invoke) {
+        try {
+            val uri = Uri.parse(invoke.parseArgs(UriArgs::class.java).uri)
+            if (DocumentsContract.deleteDocument(activity.contentResolver, uri)) {
+                invoke.resolve()
+            } else {
+                invoke.reject("文件提供程序不允许删除原文件")
+            }
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "无法删除原文件", e)
         }
     }
 
@@ -184,15 +201,6 @@ class PlaybackPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (e: Exception) {
             invoke.reject(e.message ?: "更新播放状态失败", e)
-        }
-    }
-
-    /** 持久授权：重启应用后仍能按 URI 打开。 */
-    private fun persist(uri: Uri) {
-        try {
-            activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (e: Exception) {
-            Logger.error("持久化 URI 授权失败：$uri", e)
         }
     }
 

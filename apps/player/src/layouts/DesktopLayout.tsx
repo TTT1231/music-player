@@ -4,6 +4,7 @@ import { Cover } from "../components/Cover";
 import { LiveLyrics, LiveProgressBar, LiveTime } from "../components/Live";
 import { type LyricLine } from "../components/LyricView";
 import { MODES, ModeMenu } from "../components/ModeMenu";
+import { RemoveTrackDialog } from "../components/RemoveTrackDialog";
 import { Toast } from "../components/Toast";
 import { TunePanel } from "../components/TunePanel";
 import { formatTime } from "../components/formatTime";
@@ -115,6 +116,7 @@ export function DesktopLayout() {
     const [queueOpen, setQueueOpen] = useState(true);
     const [popup, setPopup] = useState<Popup>(null);
     const [importOpen, setImportOpen] = useState(false);
+    const [removalId, setRemovalId] = useState<string | null>(null);
     const [preview, setPreview] = useState<number | null>(null);
     const [lines, setLines] = useState<LyricLine[]>([]);
     const [desktopLyrics, setDesktopLyrics] = useState(false);
@@ -125,6 +127,7 @@ export function DesktopLayout() {
     const [droppedPaths, setDroppedPaths] = useState<string[] | null>(null);
     const slider = useRef<HTMLDivElement>(null);
     const current = state?.tracks.find(track => track.id === state.currentId);
+    const pendingRemoval = state?.tracks.find(track => track.id === removalId);
     const revision = current ? revisions[current.id] : undefined;
     const stage = useStageColors(current, revision);
     const mode = MODES.find(item => item.id === state?.mode) ?? MODES[1];
@@ -180,6 +183,7 @@ export function DesktopLayout() {
     }, [current?.id, current?.hasLyrics, revision]);
     useEffect(() => {
         const keydown = (event: KeyboardEvent) => {
+            if (pendingRemoval) return;
             if (event.key === "Escape") {
                 setPopup(null);
                 setImportOpen(false);
@@ -206,7 +210,7 @@ export function DesktopLayout() {
             document.removeEventListener("keydown", keydown);
             document.removeEventListener("click", outside);
         };
-    }, [current?.id, importOpen]);
+    }, [current?.id, importOpen, pendingRemoval]);
     useEffect(() => {
         if (popup === "volume") slider.current?.focus();
     }, [popup]);
@@ -306,7 +310,7 @@ export function DesktopLayout() {
                     coverRevisions={revisions}
                     locateRequest={locateRequest}
                     onPlay={playTrack}
-                    onRemove={removeTrack}
+                    onRemove={setRemovalId}
                     onMove={moveTrack}
                     onImport={openImport}
                     onClose={closeQueue}
@@ -507,6 +511,16 @@ export function DesktopLayout() {
                             setQueueOpen(true);
                             setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
                         }
+                    }}
+                />
+            )}
+            {pendingRemoval && (
+                <RemoveTrackDialog
+                    track={pendingRemoval}
+                    onCancel={() => setRemovalId(null)}
+                    onConfirm={() => {
+                        setRemovalId(null);
+                        removeTrack(pendingRemoval.id);
                     }}
                 />
             )}

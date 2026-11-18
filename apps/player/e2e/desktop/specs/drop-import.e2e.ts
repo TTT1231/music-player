@@ -1,7 +1,7 @@
 import { expect } from "@wdio/globals";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import { dataDir, fixturesDir, queueRows } from "../helpers";
+import { dataDir, fixturesDir, queueRows, stageFixtures } from "../helpers";
 
 /**
  * 发出与系统拖放相同的 Tauri 事件。WebDriver 无法从资源管理器真正拖文件，
@@ -56,11 +56,12 @@ function rowVisible(title: string): Promise<boolean> {
 
 describe("拖放导入与去听歌", () => {
     it("把歌曲文件拖进窗口即可导入", async () => {
+        const inputs = stageFixtures();
         const files = [
             "Test Artist - Track Two.ogg",
             "Test Artist - Track Two.lrc",
             "Test Artist、Guest - Track One (Live).mp3",
-        ].map(name => path.join(fixturesDir, name));
+        ].map(name => path.join(inputs, name));
         await dropFiles(files);
 
         expect(await browser.execute(() => Boolean(document.querySelector(".import-dialog")))).toBe(true);
@@ -90,7 +91,7 @@ describe("拖放导入与去听歌", () => {
         );
         await browser.waitUntil(async () => (await queueRows()).length === 20, { timeoutMsg: "占位歌曲未导入" });
 
-        await dropFiles([path.join(fixturesDir, "Test Artist - Track Two.ogg")]);
+        await dropFiles([path.join(stageFixtures(), "Test Artist - Track Two.ogg")]);
         expect(await importText()).toContain("已导入 1 首");
         expect(await rowVisible("Track Two")).toBe(false);
 

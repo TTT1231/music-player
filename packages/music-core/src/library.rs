@@ -37,7 +37,7 @@ impl FileRef {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrackId(pub String);
 
-/// 播放列表中的一首歌。只记录文件位置，不复制文件。
+/// 播放列表中的一首歌，保存音频和歌词位置。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: TrackId,
