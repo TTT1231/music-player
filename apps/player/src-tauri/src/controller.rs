@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -13,10 +12,13 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use music_core::{
-    FileRef, PlayMode, Player, Playlist, Step, TrackId, decode_text, load_session, parse_lrc, save_session, scan_dir,
+    FileRef, ImportReport, PlayMode, Player, Playlist, Step, TrackId, decode_text, load_session, parse_lrc,
+    save_session,
 };
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Serialize;
+
+use crate::library_files::{LibraryFiles, files_from_paths};
 
 /** 把“位置”解析成可读文件：桌面是路径，安卓是 content:// URI（由插件打开文件描述符）。 */
 pub type LocationResolver = Arc<dyn Fn(&str) -> io::Result<(File, Option<String>)> + Send + Sync>;
@@ -36,6 +38,10 @@ pub trait AudioBackend {
     }
     /// 输出设备丢失后重新打开当前默认设备；成功返回 true。
     fn recover(&mut self) -> bool {
+        false
+    }
+    /// 释放暂停时无需占用的设备，保留最后的播放位置。
+    fn release_idle(&mut self) -> bool {
         false
     }
     fn load(&mut self, location: &str) -> Result<Duration, String>;
@@ -109,6 +115,8 @@ pub struct ImportResult {
     pub with_lyrics: usize,
     pub lyrics_attached: usize,
     pub orphan_lyrics: usize,
+    pub duplicates: usize,
+    pub sources_kept: usize,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControllerEvent {
@@ -243,21 +251,39 @@ impl<B: AudioBackend> Controller<B> {
     }
     /// 导入桌面路径：文件夹递归展开，文件名取自路径。
     pub fn import_paths(&mut self, paths: &[String]) -> io::Result<ImportResult> {
-        let mut files = Vec::new();
-        for value in paths {
-            let path = Path::new(value);
-            if path.is_dir() {
-                files.extend(scan_dir(path)?);
-            } else {
-                files.push(FileRef::from_path(path));
-            }
-        }
-        Ok(self.import_files(files))
+        Ok(self.import_files(files_from_paths(paths)?))
     }
 
     /// 导入已知位置和文件名的文件（安卓：内容 URI 本身不含文件名，由系统文件选择器提供）。
     pub fn import_files(&mut self, files: Vec<FileRef>) -> ImportResult {
         let report = self.player.import(files);
+        self.finish_import(report, 0, 0)
+    }
+
+    /// 保存新曲库后才移走原文件。未被配对或被判作重复的来源留在原处。
+    pub fn import_managed(
+        &mut self,
+        files: Vec<FileRef>,
+        library: &LibraryFiles,
+        remove_source: impl Fn(&str) -> io::Result<()>,
+    ) -> io::Result<ImportResult> {
+        let (files, duplicates) = library.unique_files(&self.player, files);
+        let mut preview = self.player.clone();
+        let report = preview.import(files.iter().cloned());
+        if report.added.is_empty() && report.lyrics_attached == 0 {
+            return Ok(self.finish_import(report, duplicates, 0));
+        }
+
+        let (files, staged) = library.stage(&preview, files, &self.resolver)?;
+        let mut next = self.player.clone();
+        let report = next.import(files);
+        save_session(&self.session_path, &next.session())?;
+        self.player = next;
+        let sources_kept = staged.commit(remove_source);
+        Ok(self.finish_import(report, duplicates, sources_kept))
+    }
+
+    fn finish_import(&mut self, report: ImportReport, duplicates: usize, sources_kept: usize) -> ImportResult {
         self.schedule_probes(report.added.clone());
         if let Some(id) = self.player.current().cloned()
             && self.loaded.as_ref() == Some(&id)
@@ -274,6 +300,8 @@ impl<B: AudioBackend> Controller<B> {
             with_lyrics: report.with_lyrics,
             lyrics_attached: report.lyrics_attached,
             orphan_lyrics: report.orphan_lyrics,
+            duplicates,
+            sources_kept,
         }
     }
     pub fn play_track(&mut self, id: &str) {
@@ -286,9 +314,30 @@ impl<B: AudioBackend> Controller<B> {
         if self.player.playlist().get(&id).is_none() {
             return;
         }
+        let step = self.player.remove(&id);
+        self.finish_removal(&id, step);
+    }
+
+    pub fn remove_managed(&mut self, id: &str, library: &LibraryFiles) -> io::Result<()> {
+        let id = TrackId(id.into());
+        let Some(track) = self.player.playlist().get(&id).cloned() else {
+            return Ok(());
+        };
+        let mut next = self.player.clone();
+        let step = next.remove(&id);
+        save_session(&self.session_path, &next.session())?;
+        self.player = next;
+        self.finish_removal(&id, step);
+        library.remove_unreferenced(&self.player, [Some(track.audio), track.lyrics].into_iter().flatten())
+    }
+
+    fn finish_removal(&mut self, removed: &TrackId, step: Option<Step>) {
         let playing = self.player.is_playing();
-        if let Some(step) = self.player.remove(&id) {
+        if let Some(step) = step {
             self.apply_step_with_playing(step, playing);
+        }
+        if self.loaded.as_ref() == Some(removed) {
+            self.loaded = None;
         }
         self.changed();
     }
@@ -446,6 +495,9 @@ impl<B: AudioBackend> Controller<B> {
         Ok(())
     }
     pub fn poll(&mut self) -> io::Result<Vec<ControllerEvent>> {
+        if !self.player.is_playing() && self.backend.release_idle() {
+            self.generation.fetch_add(1, Ordering::SeqCst);
+        }
         while let Ok(result) = self.probe_results.try_recv() {
             let current = self.player.playlist().get(&result.job.id);
             if self.probe_tokens.get(&result.job.id) == Some(&result.job.token)

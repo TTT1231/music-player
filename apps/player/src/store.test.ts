@@ -127,6 +127,16 @@ test("state event arriving during initial load wins over stale response", async 
     h.store.stop();
 });
 
+test("returning to the foreground refreshes the projection from Rust", async () => {
+    const h = harness();
+    await h.store.start();
+    vi.mocked(h.deps.getState).mockResolvedValueOnce(player({ playing: false, positionMs: 2400 }));
+    await h.store.refresh();
+    expect(h.store.getSnapshot().state?.playing).toBe(false);
+    expect(h.store.getPosition()).toBe(2400);
+    h.store.stop();
+});
+
 test("stop during initialization cleans late listeners and allows a fresh start", async () => {
     const h = harness();
     let release!: (unlisten: () => void) => void;

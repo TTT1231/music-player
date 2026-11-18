@@ -5,6 +5,7 @@ pub mod cover;
 #[cfg(desktop)]
 pub mod desktop_lyrics;
 pub mod ipc;
+pub mod library_files;
 
 use std::path::PathBuf;
 
@@ -14,6 +15,7 @@ use actor::{Actor, Projection};
 use audio_backend::{AudioAvailability, DeviceBackend};
 use cover::{cover_response, decode_cover_id};
 use ipc::{CoverStore, DeviceActor};
+use library_files::LibraryFiles;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,10 +35,18 @@ pub fn run() {
             });
         })
         .setup(|app| {
-            let data_dir = match std::env::var_os("MUSIC_DATA_DIR") {
+            let override_dir = std::env::var_os("MUSIC_DATA_DIR");
+            let data_dir = match &override_dir {
                 Some(path) => PathBuf::from(path),
                 None => app.path().app_data_dir()?,
             };
+            let library_base = if cfg!(target_os = "windows") && override_dir.is_none() {
+                let executable = std::env::current_exe()?;
+                executable.parent().ok_or("无法确定安装目录")?.to_path_buf()
+            } else {
+                data_dir.clone()
+            };
+            app.manage(LibraryFiles::new(library_base.join("assets")));
             std::fs::create_dir_all(&data_dir)?;
             let handle = app.handle().clone();
             let availability = AudioAvailability::default();
@@ -73,7 +83,7 @@ pub fn run() {
                 data_dir.join("session.json"),
                 location_resolver,
                 move |callback| {
-                    let output = DeviceBackend::open(callback, output_availability, output_resolver);
+                    let output = DeviceBackend::new(callback, output_availability, output_resolver);
                     Ok(output)
                 },
                 move |event| {

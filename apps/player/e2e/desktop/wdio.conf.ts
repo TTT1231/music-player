@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { clearDataDir, dataDir, driverPort, shellExe, startDrivers } from "./helpers";
+import { clearDataDir, dataDir, driverPort, shellExe, startDrivers, waitForApp } from "./helpers";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** 与本机 Edge/WebView2 版本匹配的 msedgedriver，见 docs/testing.md 的环境准备 */
@@ -37,9 +37,6 @@ export const config = {
         // 每个用例从空的数据目录启动：清空后重建会话（tauri-driver 会重新启动应用进程）
         clearDataDir();
         await browser.reloadSession();
-        await browser.waitUntil(
-            async () => await browser.execute(() => Boolean(document.querySelector(".desktop, .q-empty"))),
-            { timeout: 30_000, timeoutMsg: "应用窗口未就绪" },
-        );
+        await waitForApp();
     },
 };

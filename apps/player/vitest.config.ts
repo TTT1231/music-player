@@ -5,6 +5,6 @@ import viteConfig from "./vite.config.ts";
 export default mergeConfig(
     mergeConfig(base, viteConfig),
     defineConfig({
-        test: { environment: "jsdom" },
+        test: { environment: "jsdom", setupFiles: ["./src/testSetup.ts"] },
     }),
 );

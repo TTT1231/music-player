@@ -4,9 +4,27 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <title>music</title>
+        <style>
+            .opening-player {
+                position: fixed;
+                inset: 0;
+                display: grid;
+                place-items: center;
+                box-sizing: border-box;
+                padding: 24px;
+                background: #fbfbfa;
+                color: #4b4b49;
+                text-align: center;
+                font:
+                    15px/1.5 system-ui,
+                    sans-serif;
+            }
+        </style>
     </head>
     <body>
-        <div id="root"></div>
+        <div id="root">
+            <main class="opening-player"><span role="status">正在打开播放器…</span></main>
+        </div>
         <script type="module" src="/src/main.tsx"></script>
     </body>
 </html>

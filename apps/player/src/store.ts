@@ -111,6 +111,19 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
         cancelFrame();
         for (const dispose of unlisten.splice(0)) dispose();
     };
+    const refresh = async () => {
+        if (!active) return;
+        const current = generation;
+        const revision = stateRevision;
+        try {
+            const state = await deps.getState();
+            if (active && current === generation && revision === stateRevision) {
+                receiveState(state);
+            }
+        } catch {
+            // 保留上个快照，后续的播放操作仍会通过命令报告错误。
+        }
+    };
     const start = (): Promise<void> => {
         if (active) return starting ?? Promise.resolve();
         active = true;
@@ -160,6 +173,7 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
     return {
         start,
         stop,
+        refresh,
         getSnapshot: () => snapshot,
         subscribe(listener: () => void) {
             listeners.add(listener);

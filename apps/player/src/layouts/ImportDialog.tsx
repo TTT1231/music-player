@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { commands, type ImportResult } from "../ipc";
+import { importSummary } from "../components/importSummary";
 import "./ImportDialog.css";
 
 export type ImportDialogProps = {
@@ -87,11 +88,6 @@ export function ImportDialog({ onClose, onImported, onGoListen, droppedPaths, dr
     }, [droppedPaths, run]);
 
     const success = Boolean(result && (result.added.length || result.lyricsAttached));
-    const text = result?.added.length
-        ? `已导入 ${result.added.length} 首${result.withLyrics + result.lyricsAttached ? `，${result.withLyrics + result.lyricsAttached} 首有歌词` : ""}`
-        : result?.lyricsAttached
-          ? `已为 ${result.lyricsAttached} 首歌加上歌词`
-          : "没有找到歌曲，请重新选择";
     return (
         <div
             className="import-backdrop"
@@ -133,7 +129,7 @@ export function ImportDialog({ onClose, onImported, onGoListen, droppedPaths, dr
                 </div>
                 {(result || error) && (
                     <div className="import-result" role="status">
-                        <p>{error ?? text}</p>
+                        <p>{error ?? (result && importSummary(result))}</p>
                         {success && (
                             <button
                                 className="import-button primary"

@@ -1,15 +1,16 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 const store = vi.hoisted(() => ({
     platform: null as "desktop" | "android" | null,
     start: vi.fn(),
     stop: vi.fn(),
+    refresh: vi.fn(),
     windowLabel: "main",
 }));
 
 vi.mock("./store", () => ({
-    playerStore: { start: store.start, stop: store.stop },
+    playerStore: { start: store.start, stop: store.stop, refresh: store.refresh },
     usePlatform: () => store.platform,
     usePlayerState: () => ({ state: null, notice: null, error: null, platform: store.platform }),
     usePlaybackPosition: () => 0,
@@ -29,6 +30,7 @@ afterEach(() => {
 
 test("starts and stops the player projection with the application", () => {
     const view = render(<App />);
+    expect(screen.getByRole("status").textContent).toBe("正在打开播放器…");
     expect(store.start).toHaveBeenCalledOnce();
     view.unmount();
     expect(store.stop).toHaveBeenCalledOnce();

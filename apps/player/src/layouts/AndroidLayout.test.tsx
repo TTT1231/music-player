@@ -80,6 +80,12 @@ test("首页即播放列表：右上角搜索与 +，每行末尾 ×，正在播
     expect(currentRow.querySelector(".eq")).not.toBeNull();
     // 移除当前行
     fireEvent.click(screen.getByRole("button", { name: "从播放列表移除：Moon" }));
+    expect(screen.getByRole("alertdialog", { name: "移除歌曲" }).textContent).toContain("Moon");
+    expect(mocks.commands.removeTrack).not.toHaveBeenCalled();
+    act(() => mocks.back?.());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "从播放列表移除：Moon" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
     await waitFor(() => expect(mocks.commands.removeTrack).toHaveBeenCalledWith("b"));
     // 迷你条显示当前歌曲与进度
     expect(container.querySelector(".mini .t")?.textContent).toBe("Moon");
@@ -134,7 +140,10 @@ test("播放列表按钮打开底部弹层；点弹层外关闭；弹层行有 �
     fireEvent.click(screen.getByRole("button", { name: "播放列表" }));
     const dialog = await screen.findByRole("dialog", { name: "播放列表" });
     expect(dialog.textContent).toContain("播放列表 (2)");
-    expect(screen.getAllByRole("button", { name: "从播放列表移除：春天" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "从播放列表移除：春天" }));
+    expect(screen.getByRole("alertdialog", { name: "移除歌曲" }).textContent).toContain("春天");
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(mocks.commands.removeTrack).not.toHaveBeenCalled();
     // 点弹层外（scrim）关闭
     fireEvent.click(screen.getByTestId("scrim"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "播放列表" })).toBeNull());

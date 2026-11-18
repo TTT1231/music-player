@@ -1,7 +1,7 @@
 import { expect } from "@wdio/globals";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { currentTitle, fixturesDir, importFixtures, queueRows } from "../helpers";
+import { currentTitle, dataDir, importFixtures, inputDir, queueRows } from "../helpers";
 
 /** 通过应用命令播放一首歌（需要可用音频输出设备） */
 function playTrack(id: string): void {
@@ -16,19 +16,32 @@ function playTrack(id: string): void {
     );
 }
 
-describe("从播放列表移除（只移出列表，不删除文件）", () => {
-    it("键盘删除只移出列表，磁盘上的文件保留", async () => {
+describe("从播放列表移除曲库文件", () => {
+    it("导入移动原文件，键盘确认后删除对应的音乐和歌词", async () => {
         await importFixtures();
         const before = await queueRows();
         expect(before).toHaveLength(4);
 
-        const first = (await browser.$$(".q-row"))[0];
-        await first.click();
+        const index = before.indexOf("Track Two");
+        const row = (await browser.$$(".q-row"))[index];
+        const audio = path.join(dataDir, "assets", "music", "Test Artist - Track Two.ogg");
+        const lyrics = path.join(dataDir, "assets", "lysis", "Test Artist - Track Two.lrc");
+        expect(existsSync(audio)).toBe(true);
+        expect(existsSync(lyrics)).toBe(true);
+        expect(existsSync(path.join(inputDir, "Test Artist - Track Two.ogg"))).toBe(false);
+        expect(existsSync(path.join(inputDir, "Test Artist - Track Two.lrc"))).toBe(false);
+        await row.click();
         await browser.keys(["Delete"]);
+        await (await browser.$("button=取消")).click();
+        expect(await queueRows()).toEqual(before);
+        await browser.keys(["Delete"]);
+        await (await browser.$("button=确认移除")).click();
         await browser.waitUntil(async () => (await queueRows()).length === 3);
 
-        expect(await queueRows()).not.toContain(before[0]);
-        expect(existsSync(path.join(fixturesDir, "No Artist Instrumental.mp3"))).toBe(true);
+        expect(await queueRows()).not.toContain("Track Two");
+        expect(existsSync(audio)).toBe(false);
+        expect(existsSync(lyrics)).toBe(false);
+        expect(existsSync(path.join(dataDir, "assets", "music", "No Artist Instrumental.mp3"))).toBe(true);
     });
 
     it("移除正在播放的歌曲时接着播放列表中的下一首", async () => {
@@ -51,6 +64,7 @@ describe("从播放列表移除（只移出列表，不删除文件）", () => {
         const row = (await browser.$$(".q-row"))[index];
         await row.click();
         await browser.keys(["Delete"]);
+        await (await browser.$("button=确认移除")).click();
         await browser.waitUntil(async () => (await queueRows()).length === 3);
 
         const remaining = await queueRows();

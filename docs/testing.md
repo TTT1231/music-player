@@ -61,7 +61,7 @@ pnpm --filter @music/player test:e2e:desktop
 - 被测二进制：`pnpm --filter @music/player exec tauri build --debug`（内嵌前端的调试包；`tauri dev` 产物依赖未启动的 dev server，不能用于 e2e）；
 - 需要可用的音频输出设备（播放相关用例）；Windows 上会弹出被测应用窗口，属正常现象。
 
-每个用例开始时会清空 `target/e2e-data`（运行级临时数据目录，经 `MUSIC_DATA_DIR` 注入被测应用）并重建会话，用例之间互不影响。导入通过 WebDriver 在页面内调用应用自身的 `import_paths` 命令完成，参数为 `fixtures/music/` 下的文件。全部用例通过即成功；失败时 WDIO 输出会定位到具体用例。
+每个用例使用 `target/e2e-data` 存放会话和曲库，通过 `MUSIC_DATA_DIR` 指定。测试窗口共用 `target/e2e-webview` 中的 WebView 配置。导入测试先把 `fixtures/music/` 素材复制到临时目录，再通过 WebDriver 调用应用自身的导入命令。
 
 构建检查检查安装包体积与网络能力：
 
