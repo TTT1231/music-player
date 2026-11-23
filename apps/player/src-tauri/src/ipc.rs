@@ -33,18 +33,34 @@ pub struct CoverStore {
     idle: Condvar,
 }
 
-pub fn get_cover<B: AudioBackend + 'static>(actor: &Actor<B>, store: &CoverStore, id: String) -> Option<Cover> {
+pub fn get_cover<B: AudioBackend + 'static>(
+    actor: &Actor<B>,
+    store: &CoverStore,
+    library: &LibraryFiles,
+    id: String,
+) -> Option<Cover> {
     let resolver = actor.call(|controller| controller.resolver()).ok()?;
-    get_cover_with(actor, store, id, move |path| load_cover(&resolver, path))
+    let library = library.clone();
+    let cover_id = id.clone();
+    get_cover_with(actor, store, id, move |path| {
+        load_cover_for_track(&resolver, path, &library, &cover_id)
+    })
 }
 
-/// 内嵌封面优先；没有时桌面端回退到曲库里与歌曲同名的图片。
+/// 内嵌封面优先；没有时回退到与歌曲同名的图片。
 pub fn load_cover(resolver: &LocationResolver, path: &Path) -> Option<Cover> {
     let (file, ext) = resolver(path.to_str()?).ok()?;
     let embedded = music_audio::probe_file(file, ext.as_deref()).ok()?.cover;
-    #[cfg(desktop)]
-    let embedded = embedded.or_else(|| crate::cover::sidecar_image(path));
-    embedded
+    embedded.or_else(|| crate::cover::sidecar_image(path))
+}
+
+pub fn load_cover_for_track(
+    resolver: &LocationResolver,
+    path: &Path,
+    library: &LibraryFiles,
+    id: &str,
+) -> Option<Cover> {
+    load_cover(resolver, path).or_else(|| library.cover(id))
 }
 
 /// 缓存锁不跨越文件读取；若导入改变了歌曲，丢弃旧结果并重新查询。

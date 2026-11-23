@@ -21,6 +21,15 @@ impl LibraryFiles {
         Self { root }
     }
 
+    /// 旧安卓会话可能使用内容 URI；用歌曲标识而不是 URI 查找曲库中的图片。
+    pub(crate) fn cover_path(&self, id: &str) -> Option<PathBuf> {
+        crate::cover::find_image_file(&self.root.join("img"), &id.trim().to_lowercase())
+    }
+
+    pub(crate) fn cover(&self, id: &str) -> Option<music_audio::Cover> {
+        self.cover_path(id).and_then(|path| crate::cover::read_image(&path))
+    }
+
     pub(crate) fn unique_files(&self, player: &Player, mut files: Vec<FileRef>) -> (Vec<FileRef>, usize) {
         let mut names = HashSet::new();
         for track in player.library().tracks() {

@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use music_player_shell_lib::controller::path_resolver;
 use music_player_shell_lib::cover::{CoverCache, cover_response, decode_cover_id, encode_cover_id, sidecar_image};
-use music_player_shell_lib::ipc::load_cover;
+use music_player_shell_lib::ipc::{load_cover, load_cover_for_track};
+use music_player_shell_lib::library_files::LibraryFiles;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -106,4 +107,22 @@ fn cover_lookup_prefers_embedded_art_and_falls_back_to_the_sidecar() {
     // 两者皆无：维持无封面
     let bare = library_layout(dir.path(), "孤儿", None);
     assert_eq!(load_cover(&resolver, &bare), None);
+}
+
+#[test]
+fn library_cover_is_found_for_a_legacy_android_content_uri() {
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().unwrap();
+    let image_dir = dir.path().join("assets/img");
+    fs::create_dir_all(&image_dir).unwrap();
+    fs::copy(fixture("img/No Artist Instrumental.jpg"), image_dir.join(" SONG .JPG")).unwrap();
+    let audio = fixture("No Artist Instrumental.mp3");
+    let resolver: music_player_shell_lib::controller::LocationResolver =
+        Arc::new(move |_: &str| Ok((fs::File::open(&audio)?, Some("mp3".to_owned()))));
+    let library = LibraryFiles::new(dir.path().join("assets"));
+
+    let cover = load_cover_for_track(&resolver, std::path::Path::new("content://media/42"), &library, "song")
+        .expect("旧安卓 URI 的歌曲也应能读取曲库中的同名图片");
+    assert_eq!(cover.mime, "image/jpeg");
 }

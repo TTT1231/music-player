@@ -137,7 +137,8 @@ fn cover_is_read_through_the_location_resolver_for_content_uris() {
     );
     let id = actor.call(move |c| c.import_files(vec![file])).unwrap().added.remove(0);
     let covers = CoverStore::default();
-    let cover = get_cover(&actor, &covers, id).expect("cover read via resolver");
+    let library = music_player_shell_lib::library_files::LibraryFiles::new(directory.path().join("assets"));
+    let cover = get_cover(&actor, &covers, &library, id).expect("cover read via resolver");
     assert_eq!(cover.mime, "image/png");
     actor.shutdown();
 }
@@ -156,12 +157,13 @@ fn importing_a_replacement_invalidates_cached_cover_even_at_the_same_path() {
     )
     .unwrap();
     let covers = CoverStore::default();
+    let library = music_player_shell_lib::library_files::LibraryFiles::new(directory.path().join("assets"));
     let paths = vec![path.to_string_lossy().into_owned()];
     let id = import_files(&actor, &covers, paths.clone()).unwrap().added.remove(0);
-    assert!(get_cover(&actor, &covers, id.clone()).is_some());
+    assert!(get_cover(&actor, &covers, &library, id.clone()).is_some());
     std::fs::copy(fixtures.join("No Artist Instrumental.mp3"), &path).unwrap();
     import_files(&actor, &covers, paths).unwrap();
-    assert!(get_cover(&actor, &covers, id).is_none());
+    assert!(get_cover(&actor, &covers, &library, id).is_none());
     actor.shutdown();
 }
 

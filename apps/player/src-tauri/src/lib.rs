@@ -29,8 +29,14 @@ pub fn run() {
             let id = decode_cover_id(request.uri().path().trim_start_matches('/'));
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
-                let cover =
-                    id.and_then(|id| ipc::get_cover(&app.state::<DeviceActor>(), &app.state::<CoverStore>(), id));
+                let cover = id.and_then(|id| {
+                    ipc::get_cover(
+                        &app.state::<DeviceActor>(),
+                        &app.state::<CoverStore>(),
+                        &app.state::<LibraryFiles>(),
+                        id,
+                    )
+                });
                 responder.respond(cover_response(cover));
             });
         })

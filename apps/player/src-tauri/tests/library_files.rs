@@ -163,6 +163,33 @@ fn imports_lyrics_and_cover_from_siblings_of_the_music_folder() {
 }
 
 #[test]
+fn removes_a_managed_cover_for_a_legacy_external_song() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("assets");
+    fs::create_dir_all(root.join("img")).unwrap();
+    let image = root.join("img/甲 - 歌.jpg");
+    fs::write(&image, b"image").unwrap();
+    let external = source(dir.path(), "甲 - 歌.mp3", b"audio");
+    let library = LibraryFiles::new(root);
+    let mut player = controller(&dir.path().join("session.json"));
+    let id = player.import_files(vec![external.clone()]).added.remove(0);
+    assert!(
+        music_player_shell_lib::ipc::load_cover_for_track(
+            &path_resolver(),
+            Path::new(&external.location),
+            &library,
+            &id,
+        )
+        .is_some(),
+        "id={id:?}"
+    );
+
+    player.remove_managed(&id, &library).unwrap();
+    assert!(!image.exists());
+    assert!(Path::new(&external.location).exists());
+}
+
+#[test]
 fn restores_deduplicates_and_removes_lyrics_in_the_legacy_owned_folder() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("assets");

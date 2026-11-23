@@ -451,15 +451,17 @@ impl<B: AudioBackend> Controller<B> {
         self.finish_removal(&id, step);
         self.both_changed();
         // 同名图片与音频同生命周期：歌曲移出曲库时一并删除
-        #[cfg(desktop)]
         let sidecars = crate::cover::sidecar_paths(Path::new(&track.audio));
-        #[cfg(not(desktop))]
-        let sidecars: Vec<PathBuf> = Vec::new();
         library.remove_unreferenced(
             &self.player,
             [Some(track.audio), track.lyrics]
                 .into_iter()
                 .flatten()
+                .chain(
+                    library
+                        .cover_path(&id.0)
+                        .map(|path| path.to_string_lossy().into_owned()),
+                )
                 .chain(sidecars.into_iter().map(|path| path.to_string_lossy().into_owned())),
         )
     }
