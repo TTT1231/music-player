@@ -1,6 +1,14 @@
 {
     "oxc.typeAware": true,
     "files.exclude": {
+        ".*": true,
+        "!.gitignore": true,
+        "!.gitattributes": true,
+        "!.vscode": true,
+        "!.github": true,
+        "!.oxlintrc.json": true,
+        "!.oxfmtrc.json": true,
+
         "*.tsbuildinfo": true,
         ".tools": true,
         "**/node_modules": true
