@@ -9,6 +9,8 @@
     "type": "module",
     "scripts": {
         "clean": "node scripts/clean.mjs",
+        "desktop": "tsx scripts/ensure-integrity.ts && pnpm --filter @music/player dev",
+        "desktop:stop": "tsx scripts/stop-desktop.ts",
         "typecheck": "tsx scripts/run-affected.ts typecheck",
         "typecheck:scripts": "tsc --project tsconfig.json",
         "lint": "tsx scripts/run-oxlint.ts --type-aware",
