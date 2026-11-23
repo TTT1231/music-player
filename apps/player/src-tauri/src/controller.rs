@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -328,7 +328,18 @@ impl<B: AudioBackend> Controller<B> {
         save_session(&self.session_path, &next.session())?;
         self.player = next;
         self.finish_removal(&id, step);
-        library.remove_unreferenced(&self.player, [Some(track.audio), track.lyrics].into_iter().flatten())
+        // 同名图片与音频同生命周期：歌曲移出曲库时一并删除
+        #[cfg(desktop)]
+        let sidecars = crate::cover::sidecar_paths(Path::new(&track.audio));
+        #[cfg(not(desktop))]
+        let sidecars: Vec<PathBuf> = Vec::new();
+        library.remove_unreferenced(
+            &self.player,
+            [Some(track.audio), track.lyrics]
+                .into_iter()
+                .flatten()
+                .chain(sidecars.into_iter().map(|path| path.to_string_lossy().into_owned())),
+        )
     }
 
     fn finish_removal(&mut self, removed: &TrackId, step: Option<Step>) {

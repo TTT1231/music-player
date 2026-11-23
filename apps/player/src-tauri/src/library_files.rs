@@ -52,30 +52,29 @@ impl LibraryFiles {
         mut files: Vec<FileRef>,
         open: &LocationResolver,
     ) -> io::Result<(Vec<FileRef>, StagedFiles)> {
-        for name in ["music", "lysis"] {
+        let ensure = |name: &str| {
             let folder = self.root.join(name);
             fs::create_dir_all(&folder).map_err(|error| {
                 io::Error::new(error.kind(), format!("无法创建曲库目录 {}：{error}", folder.display()))
-            })?;
-        }
+            })
+        };
+        ensure("music")?;
+        ensure("lysis")?;
+        // 桌面：同名图片与音乐一起入库，作为无内嵌封面歌曲的展示回退
+        #[cfg(desktop)]
+        ensure("img")?;
         let used = locations(preview);
         let mut staged = StagedFiles::default();
         for file in &mut files {
-            let source = Path::new(&file.location);
+            let origin = file.location.clone();
+            let source = Path::new(&origin);
             if !used.contains(file.location.as_str()) || (self.owns(source) && source.is_file()) {
                 continue;
             }
             let folder = self
                 .root
                 .join(asset_folder(&file.file_name).expect("filtered file type"));
-            let copy = || {
-                let (mut input, _) = open(&file.location)?;
-                let mut temp = tempfile::Builder::new().prefix(".import-").tempfile_in(&folder)?;
-                io::copy(&mut input, temp.as_file_mut())?;
-                temp.as_file().sync_all()?;
-                let name = file.file_name.replace(['/', '\\', ':', '\0'], "_");
-                persist_unique(temp, &folder, &name)
-            };
+            let copy = || stage_file(&folder, &file.location, &file.file_name, open);
             let saved = copy().map_err(|error| {
                 io::Error::new(
                     error.kind(),
@@ -86,6 +85,26 @@ impl LibraryFiles {
             staged
                 .files
                 .push((std::mem::replace(&mut file.location, location), saved));
+
+            // 音频源旁边 img/ 里的同名图片一并入库，移除歌曲时一并删除
+            #[cfg(desktop)]
+            if asset_folder(&file.file_name) == Some("music")
+                && let Some(parent) = source.parent()
+                && let Some(stem) = source.file_stem().and_then(|stem| stem.to_str())
+                && let Some(image) =
+                    crate::cover::find_image_file(&parent.join("img"), stem.trim().to_lowercase().as_str())
+                && let Some(image_name) = image.file_name().and_then(|name| name.to_str())
+            {
+                let image_folder = self.root.join("img");
+                let saved_image = stage_file(&image_folder, image.to_string_lossy().as_ref(), image_name, open)
+                    .map_err(|error| {
+                        io::Error::new(
+                            error.kind(),
+                            format!("无法导入 {} 到 {}：{error}", image_name, image_folder.display()),
+                        )
+                    })?;
+                staged.files.push((image.to_string_lossy().into_owned(), saved_image));
+            }
         }
         Ok((files, staged))
     }
@@ -115,7 +134,7 @@ impl LibraryFiles {
 
     fn owns(&self, path: &Path) -> bool {
         let Some(parent) = path.parent() else { return false };
-        let Some(folder @ ("music" | "lysis")) = parent.file_name().and_then(|name| name.to_str()) else {
+        let Some(folder @ ("music" | "lysis" | "img")) = parent.file_name().and_then(|name| name.to_str()) else {
             return false;
         };
         let owned = self.root.join(folder);
@@ -146,6 +165,16 @@ fn locations(player: &Player) -> HashSet<&str> {
         .iter()
         .flat_map(|track| std::iter::once(track.audio.as_str()).chain(track.lyrics.as_deref()))
         .collect()
+}
+
+/// 把一个源文件复制进曲库目录（先写临时文件再落名，冲突加序号）。
+fn stage_file(folder: &Path, location: &str, name: &str, open: &LocationResolver) -> io::Result<PathBuf> {
+    let (mut input, _) = open(location)?;
+    let mut temp = tempfile::Builder::new().prefix(".import-").tempfile_in(folder)?;
+    io::copy(&mut input, temp.as_file_mut())?;
+    temp.as_file().sync_all()?;
+    let name = name.replace(['/', '\\', ':', '\0'], "_");
+    persist_unique(temp, folder, &name)
 }
 
 fn persist_unique(mut file: tempfile::NamedTempFile, folder: &Path, name: &str) -> io::Result<PathBuf> {

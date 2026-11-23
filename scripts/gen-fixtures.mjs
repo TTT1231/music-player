@@ -2,7 +2,7 @@
 // 需要 PATH 中有带 libmp3lame、libvorbis 的 ffmpeg；用法：node scripts/gen-fixtures.mjs
 // 素材必须是生成的：assets/ 不进 git，CI 拿不到，也不能把有版权的歌曲放进仓库。
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,6 +52,7 @@ const lrc = (title, lines) =>
 try {
     rmSync(out, { recursive: true, force: true });
     mkdirSync(join(out, "subfolder"), { recursive: true });
+    mkdirSync(join(out, "img"), { recursive: true });
 
     const cover = join(tmp, "cover.png");
     ffmpeg("-f", "lavfi", "-i", "color=c=0x2440b8:s=16x16", "-frames:v", "1", ...EXACT, cover);
@@ -117,6 +118,11 @@ try {
 
     // 无封面、无歌词、文件名没有“ - ”
     ffmpeg("-f", "lavfi", "-i", TONE, ...mp3, ...EXACT, join(out, "No Artist Instrumental.mp3"));
+
+    // 曲库 img/ 里的同名图片：模拟用户为无内嵌封面的歌曲准备的展示回退封面
+    const sidecar = join(tmp, "sidecar.jpg");
+    ffmpeg("-f", "lavfi", "-i", "color=c=0xb85c24:s=16x16", "-frames:v", "1", "-q:v", "2", ...EXACT, sidecar);
+    copyFileSync(sidecar, join(out, "img", "No Artist Instrumental.jpg"));
 
     // 子文件夹：无封面，带 BOM 的 UTF-8 歌词
     const third = "Test Artist - Track Three";

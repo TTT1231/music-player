@@ -5,7 +5,7 @@ mod common;
 use std::fs::File;
 
 use common::*;
-use music_audio::{AudioError, decode_file, probe, probe_file};
+use music_audio::{AudioError, decode_file, probe, probe_file, sniff_image_mime};
 
 #[test]
 fn decodes_mp3_and_ogg() {
@@ -64,6 +64,17 @@ fn files_without_cover_report_none() {
     for name in [MP3_NO_COVER, OGG_NO_COVER] {
         assert_eq!(probe(&fixture(name)).unwrap().cover, None, "{name}");
     }
+}
+
+#[test]
+fn sniffs_jpeg_and_png_from_magic_bytes_only() {
+    assert_eq!(
+        sniff_image_mime(b"\x89PNG\r\n\x1a\n trailing bytes ignored"),
+        Some("image/png")
+    );
+    assert_eq!(sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00]), Some("image/jpeg"));
+    assert_eq!(sniff_image_mime(b"GIF89a"), None);
+    assert_eq!(sniff_image_mime(b""), None);
 }
 
 #[test]

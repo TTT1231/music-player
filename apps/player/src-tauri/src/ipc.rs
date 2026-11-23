@@ -12,7 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::actor::Actor;
 use crate::audio_backend::{AudioAvailability, DeviceBackend};
-use crate::controller::{AudioBackend, Controller, ImportResult, PlayerState};
+use crate::controller::{AudioBackend, Controller, ImportResult, LocationResolver, PlayerState};
 use crate::cover::CoverCache;
 use crate::library_files::LibraryFiles;
 #[cfg(desktop)]
@@ -35,10 +35,16 @@ pub struct CoverStore {
 
 pub fn get_cover<B: AudioBackend + 'static>(actor: &Actor<B>, store: &CoverStore, id: String) -> Option<Cover> {
     let resolver = actor.call(|controller| controller.resolver()).ok()?;
-    get_cover_with(actor, store, id, move |path| {
-        let (file, ext) = resolver(path.to_str()?).ok()?;
-        music_audio::probe_file(file, ext.as_deref()).ok()?.cover
-    })
+    get_cover_with(actor, store, id, move |path| load_cover(&resolver, path))
+}
+
+/// 内嵌封面优先；没有时桌面端回退到曲库里与歌曲同名的图片。
+pub fn load_cover(resolver: &LocationResolver, path: &Path) -> Option<Cover> {
+    let (file, ext) = resolver(path.to_str()?).ok()?;
+    let embedded = music_audio::probe_file(file, ext.as_deref()).ok()?.cover;
+    #[cfg(desktop)]
+    let embedded = embedded.or_else(|| crate::cover::sidecar_image(path));
+    embedded
 }
 
 /// 缓存锁不跨越文件读取；若导入改变了歌曲，丢弃旧结果并重新查询。

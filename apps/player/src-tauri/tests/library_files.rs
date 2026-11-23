@@ -97,6 +97,48 @@ fn moves_only_the_first_copy_of_each_name_then_removes_the_owned_pair() {
 }
 
 #[test]
+fn imports_the_sidecar_image_with_its_song_and_removes_them_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = tempfile::tempdir().unwrap();
+    fs::create_dir(input.path().join("img")).unwrap();
+    let audio = source(input.path(), "甲 - 歌.mp3", b"first");
+    let bare = source(input.path(), "乙 - 曲.mp3", b"second");
+    let image_path = input.path().join("img/甲 - 歌.jpg");
+    fs::write(&image_path, b"jpeg-bytes").unwrap();
+    let session_path = dir.path().join("session.json");
+    let library = LibraryFiles::new(dir.path().join("installation/assets"));
+    let mut player = controller(&session_path);
+
+    let report = player
+        .import_managed(vec![audio, bare], &library, remove_source)
+        .unwrap();
+    assert_eq!(report.added.len(), 2);
+
+    // 同名图片跟着歌曲进曲库，源图片随源音频一起移走
+    let managed_image = dir.path().join("installation/assets/img/甲 - 歌.jpg");
+    assert_eq!(fs::read(&managed_image).unwrap(), b"jpeg-bytes");
+    assert!(!image_path.exists());
+    // 没有同名图片的歌不会带出多余文件
+    assert_eq!(
+        fs::read_dir(dir.path().join("installation/assets/img"))
+            .unwrap()
+            .count(),
+        1
+    );
+
+    player.remove_managed("甲 - 歌", &library).unwrap();
+    assert!(!managed_image.exists());
+    let session = load_session(&session_path).unwrap().unwrap();
+    assert_eq!(session.tracks.len(), 1);
+    assert!(Path::new(&session.tracks[0].audio).exists());
+    assert!(
+        load_session(&session_path).unwrap().unwrap().tracks[0]
+            .audio
+            .contains("乙 - 曲")
+    );
+}
+
+#[test]
 fn save_failure_leaves_sources_and_playlist_intact() {
     let dir = tempfile::tempdir().unwrap();
     let session = dir.path().join("session.json");

@@ -168,14 +168,15 @@ fn find_cover(format: &mut dyn FormatReader) -> Option<Cover> {
         .media_type
         .clone()
         .filter(|m| !m.is_empty())
-        .or_else(|| sniff_image_type(&chosen.data).map(String::from))?;
+        .or_else(|| sniff_image_mime(&chosen.data).map(String::from))?;
     Some(Cover {
         mime,
         data: chosen.data.to_vec(),
     })
 }
 
-fn sniff_image_type(data: &[u8]) -> Option<&'static str> {
+/// 从图片字节嗅探 mime；只认 JPEG 和 PNG，与内嵌封面的识别范围一致。
+pub fn sniff_image_mime(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("image/png")
     } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
