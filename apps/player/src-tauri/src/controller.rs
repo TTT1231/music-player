@@ -12,8 +12,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use music_core::{
-    FileRef, ImportReport, PlayMode, Player, Playlist, SavedPlaylist, Step, TrackId, decode_text, load_session,
-    parse_lrc, save_session,
+    FileRef, ImportReport, Library, PlayMode, Player, PlaylistError, PlaylistId, Step, Track, TrackId, decode_text,
+    load_session, parse_lrc, save_session,
 };
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Serialize;
@@ -85,6 +85,41 @@ impl AudioBackend for music_audio::DeviceOutput {
     }
 }
 
+/// 两端默认的导入行为及曲库快照的发布方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlatformBehavior {
+    /// 默认是否把导入的歌追加到播放列表。桌面的曲库入口可以选择只入库。
+    pub import_enqueues: bool,
+    /// 是否单独发布曲库和歌单快照。桌面界面通过播放状态接收它们。
+    pub projects_library: bool,
+}
+
+impl PlatformBehavior {
+    pub const fn desktop() -> Self {
+        Self {
+            import_enqueues: true,
+            projects_library: false,
+        }
+    }
+
+    pub const fn android() -> Self {
+        Self {
+            import_enqueues: false,
+            projects_library: true,
+        }
+    }
+}
+
+impl Default for PlatformBehavior {
+    fn default() -> Self {
+        if cfg!(target_os = "android") {
+            Self::android()
+        } else {
+            Self::desktop()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackView {
@@ -95,12 +130,13 @@ pub struct TrackView {
     pub duration_ms: Option<u64>,
     pub cover_url: String,
 }
+/// 播放状态：播放列表和当前播放。桌面队列面板与安卓播放页的「播放列表」弹层读它。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerState {
     pub tracks: Vec<TrackView>,
     pub library: Vec<TrackView>,
-    pub playlists: Vec<SavedPlaylist>,
+    pub playlists: Vec<PlaylistView>,
     pub queue_source: Option<String>,
     pub current_id: Option<String>,
     pub playing: bool,
@@ -110,6 +146,20 @@ pub struct PlayerState {
     pub pitch: i8,
     pub position_ms: u64,
     pub duration_ms: Option<u64>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistView {
+    pub id: String,
+    pub name: String,
+    pub track_ids: Vec<String>,
+}
+/// 曲库和自建歌单：安卓的首页、歌单页和选歌页读它。`tracks` 即「全部音乐」，按导入顺序。
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryState {
+    pub tracks: Vec<TrackView>,
+    pub playlists: Vec<PlaylistView>,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,7 +174,11 @@ pub struct ImportResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControllerEvent {
     StateChanged,
-    Notice { title: String },
+    /// 曲库或歌单有变化：导入、移除、探测到时长、歌单的增删改名和增减歌曲。
+    LibraryChanged,
+    Notice {
+        title: String,
+    },
     DeviceError(String),
 }
 
@@ -142,6 +196,7 @@ pub struct Controller<B: AudioBackend> {
     player: Player,
     backend: B,
     resolver: LocationResolver,
+    behavior: PlatformBehavior,
     loaded: Option<TrackId>,
     session_path: PathBuf,
     dirty_since: Option<Instant>,
@@ -162,7 +217,7 @@ impl<B: AudioBackend> Controller<B> {
     ) -> io::Result<Self> {
         let player = load_session(&session_path)?
             .map(Player::restore)
-            .unwrap_or_else(|| Player::new(Playlist::new()));
+            .unwrap_or_else(|| Player::new(Library::new()));
         backend.set_volume(player.volume());
         let (jobs_tx, jobs_rx) = mpsc::channel::<ProbeJob>();
         let (results_tx, results_rx) = mpsc::channel();
@@ -185,6 +240,7 @@ impl<B: AudioBackend> Controller<B> {
             player,
             backend,
             resolver,
+            behavior: PlatformBehavior::default(),
             loaded: None,
             session_path,
             dirty_since: None,
@@ -207,26 +263,31 @@ impl<B: AudioBackend> Controller<B> {
         Ok(controller)
     }
 
+    /// 指定平台行为；默认跟随编译目标。
+    pub fn set_behavior(&mut self, behavior: PlatformBehavior) {
+        self.behavior = behavior;
+    }
+
     pub fn state(&self) -> PlayerState {
-        let views = |tracks: &[music_core::Track]| {
-            tracks
-                .iter()
-                .map(|track| TrackView {
-                    id: track.id.0.clone(),
-                    title: track.title.clone(),
-                    artist: track.artist.clone(),
-                    has_lyrics: track.lyrics.is_some(),
-                    duration_ms: track.duration_ms,
-                    cover_url: cover_url_for(&track.id.0, cfg!(any(target_os = "windows", target_os = "android"))),
-                })
-                .collect()
-        };
-        let tracks = views(self.player.playlist().tracks());
         let current = self.player.current();
+        let LibraryState {
+            tracks: library,
+            playlists,
+        } = if self.behavior.projects_library {
+            LibraryState::default()
+        } else {
+            self.library_state()
+        };
         PlayerState {
-            tracks,
-            library: views(self.player.library().tracks()),
-            playlists: self.player.saved_playlists().to_vec(),
+            tracks: self
+                .player
+                .queue()
+                .iter()
+                .filter_map(|id| self.player.track(id))
+                .map(track_view)
+                .collect(),
+            library,
+            playlists,
             queue_source: self.player.queue_source().map(str::to_owned),
             current_id: current.map(|id| id.0.clone()),
             playing: self.player.is_playing(),
@@ -234,14 +295,39 @@ impl<B: AudioBackend> Controller<B> {
             volume: self.player.volume(),
             rate: self.player.rate(),
             pitch: self.player.pitch(),
-            position_ms: if current.is_some() && current == self.loaded.as_ref() {
-                millis(self.backend.position())
-            } else {
-                0
-            },
+            position_ms: self.position_ms(),
             duration_ms: current
-                .and_then(|id| self.player.playlist().get(id))
+                .and_then(|id| self.player.track(id))
                 .and_then(|track| track.duration_ms),
+        }
+    }
+    fn position_ms(&self) -> u64 {
+        let current = self.player.current();
+        if current.is_some() && current == self.loaded.as_ref() {
+            millis(self.backend.position())
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn playing_position_ms(&self) -> Option<u64> {
+        self.player.is_playing().then(|| self.position_ms())
+    }
+
+    /// 曲库和自建歌单的投影。
+    pub fn library_state(&self) -> LibraryState {
+        LibraryState {
+            tracks: self.player.library().tracks().iter().map(track_view).collect(),
+            playlists: self
+                .player
+                .playlists()
+                .iter()
+                .map(|playlist| PlaylistView {
+                    id: playlist.id.0.clone(),
+                    name: playlist.name.clone(),
+                    track_ids: playlist.tracks.iter().map(|id| id.0.clone()).collect(),
+                })
+                .collect(),
         }
     }
     /// 读取封面等文件内容时使用；安卓位置是 content:// URI，不能当路径打开。
@@ -251,8 +337,7 @@ impl<B: AudioBackend> Controller<B> {
 
     pub fn cover_path(&self, id: &str) -> Option<PathBuf> {
         self.player
-            .library()
-            .get(&TrackId(id.to_owned()))
+            .track(&TrackId(id.to_owned()))
             .map(|track| PathBuf::from(&track.audio))
     }
     /// 导入桌面路径：文件夹递归展开，文件名取自路径。
@@ -263,6 +348,9 @@ impl<B: AudioBackend> Controller<B> {
     /// 导入已知位置和文件名的文件（安卓：内容 URI 本身不含文件名，由系统文件选择器提供）。
     pub fn import_files(&mut self, files: Vec<FileRef>) -> ImportResult {
         let report = self.player.import(files);
+        if self.behavior.import_enqueues {
+            self.player.enqueue(report.added.iter().cloned());
+        }
         self.finish_import(report, 0, 0)
     }
 
@@ -273,7 +361,7 @@ impl<B: AudioBackend> Controller<B> {
         library: &LibraryFiles,
         remove_source: impl Fn(&str) -> io::Result<()>,
     ) -> io::Result<ImportResult> {
-        self.import_managed_with_queue(files, library, remove_source, true)
+        self.import_managed_with_queue(files, library, remove_source, self.behavior.import_enqueues)
     }
 
     pub fn import_managed_with_queue(
@@ -292,11 +380,10 @@ impl<B: AudioBackend> Controller<B> {
 
         let (files, staged) = library.stage(&preview, files, &self.resolver)?;
         let mut next = self.player.clone();
-        let report = if into_queue {
-            next.import(files)
-        } else {
-            next.import_library(files)
-        };
+        let report = next.import(files);
+        if into_queue {
+            next.enqueue(report.added.iter().cloned());
+        }
         save_session(&self.session_path, &next.session())?;
         self.player = next;
         let sources_kept = staged.commit(remove_source);
@@ -313,7 +400,7 @@ impl<B: AudioBackend> Controller<B> {
             self.apply_step_with_playing(Step::Play(id), playing);
         }
         if !report.added.is_empty() || report.lyrics_attached > 0 {
-            self.changed();
+            self.both_changed();
         }
         ImportResult {
             added: report.added.into_iter().map(|id| id.0).collect(),
@@ -324,30 +411,45 @@ impl<B: AudioBackend> Controller<B> {
             sources_kept,
         }
     }
+    /// 从某个歌单或搜索结果播放：播放列表换成 `ids` 的顺序，从 `start` 开始。
+    /// 起点不在列表里时什么都不变，返回 false。
+    pub fn play_from(&mut self, ids: &[String], start: &str) -> bool {
+        let ids: Vec<TrackId> = ids.iter().cloned().map(TrackId).collect();
+        let Some(step) = self.player.play_from(&ids, &TrackId(start.to_owned())) else {
+            return false;
+        };
+        self.apply_step(step);
+        self.changed();
+        true
+    }
     pub fn play_track(&mut self, id: &str) {
         let step = self.player.play_track(&TrackId(id.to_owned()));
         self.apply_step(step);
         self.changed();
     }
-    pub fn remove_track(&mut self, id: &str) {
+    /// 只移出播放列表：曲库、歌单和文件都不动。要连曲库里的文件一起删除，用 [`Self::remove_managed`]。
+    pub fn remove_queue_track(&mut self, id: &str) {
         let id = TrackId(id.to_owned());
-        if self.player.playlist().get(&id).is_none() {
+        if !self.player.queue().contains(&id) {
             return;
         }
         let step = self.player.remove(&id);
         self.finish_removal(&id, step);
+        self.changed();
     }
 
+    /// 从曲库移除歌曲并删除不再被引用的曲库文件；它同时离开播放列表和所有歌单。
     pub fn remove_managed(&mut self, id: &str, library: &LibraryFiles) -> io::Result<()> {
         let id = TrackId(id.into());
-        let Some(track) = self.player.library().get(&id).cloned() else {
+        let Some(track) = self.player.track(&id).cloned() else {
             return Ok(());
         };
         let mut next = self.player.clone();
-        let step = next.remove(&id);
+        let step = next.remove_from_library(&id);
         save_session(&self.session_path, &next.session())?;
         self.player = next;
         self.finish_removal(&id, step);
+        self.both_changed();
         // 同名图片与音频同生命周期：歌曲移出曲库时一并删除
         #[cfg(desktop)]
         let sidecars = crate::cover::sidecar_paths(Path::new(&track.audio));
@@ -370,44 +472,46 @@ impl<B: AudioBackend> Controller<B> {
         if self.loaded.as_ref() == Some(removed) {
             self.loaded = None;
         }
-        self.changed();
     }
-
-    pub fn create_playlist(&mut self, name: String) -> Result<String, String> {
-        let id = self.player.create_saved_playlist(&name)?;
-        self.changed();
-        Ok(id)
+    pub fn create_playlist(&mut self, name: &str) -> Result<String, PlaylistError> {
+        let id = self.player.create_playlist(name)?;
+        self.library_changed();
+        Ok(id.0)
     }
-
-    pub fn add_playlist_tracks(&mut self, id: String, tracks: Vec<String>) -> Result<(), String> {
+    pub fn rename_playlist(&mut self, id: &str, name: &str) -> Result<(), PlaylistError> {
+        self.player.rename_playlist(&PlaylistId(id.to_owned()), name)?;
+        self.library_changed();
+        Ok(())
+    }
+    /// 删除歌单；歌单里的歌曲仍留在曲库和播放列表里。
+    pub fn delete_playlist(&mut self, id: &str) -> Result<(), PlaylistError> {
+        self.player.delete_playlist(&PlaylistId(id.to_owned()))?;
+        self.library_changed();
+        Ok(())
+    }
+    /// 把歌曲按给定顺序加到歌单末尾，返回加入的数量（已在歌单里或曲库里没有的不算）。
+    pub fn add_playlist_tracks(&mut self, id: &str, tracks: &[String]) -> Result<usize, PlaylistError> {
+        let tracks: Vec<TrackId> = tracks.iter().cloned().map(TrackId).collect();
+        let added = self.player.add_to_playlist(&PlaylistId(id.to_owned()), &tracks)?;
+        self.library_changed();
+        Ok(added)
+    }
+    /// 把歌曲移出歌单；曲库和播放列表不受影响。
+    pub fn remove_playlist_track(&mut self, id: &str, track: &str) -> Result<(), PlaylistError> {
         self.player
-            .add_to_saved_playlist(&id, &tracks.into_iter().map(TrackId).collect::<Vec<_>>())?;
-        self.changed();
+            .remove_from_playlist(&PlaylistId(id.to_owned()), &TrackId(track.to_owned()))?;
+        self.library_changed();
         Ok(())
     }
-
-    pub fn remove_playlist_track(&mut self, id: String, track: String) -> Result<(), String> {
-        self.player.remove_from_saved_playlist(&id, &TrackId(track))?;
-        self.changed();
-        Ok(())
-    }
-
-    pub fn play_playlist(&mut self, id: Option<String>, track: Option<String>) -> Result<(), String> {
-        let track = track.map(TrackId);
-        let step = self.player.play_saved_playlist(id.as_deref(), track.as_ref())?;
+    pub fn play_playlist(&mut self, id: Option<&str>, track: Option<&str>) -> Result<(), PlaylistError> {
+        let id = id.map(|id| PlaylistId(id.to_owned()));
+        let track = track.map(|track| TrackId(track.to_owned()));
+        let step = self.player.play_playlist(id.as_ref(), track.as_ref())?;
         self.apply_step(step);
         self.changed();
         Ok(())
     }
 
-    pub fn remove_queue_track(&mut self, id: &str) {
-        let id = TrackId(id.to_owned());
-        if self.player.playlist().get(&id).is_none() {
-            return;
-        }
-        let step = self.player.remove_from_queue(&id);
-        self.finish_removal(&id, step);
-    }
     pub fn play(&mut self) {
         if !self.backend.available() {
             if self.player.current().is_none() {
@@ -504,8 +608,7 @@ impl<B: AudioBackend> Controller<B> {
     pub fn lyrics(&self, id: &str) -> io::Result<music_core::Lyrics> {
         let Some(path) = self
             .player
-            .library()
-            .get(&TrackId(id.to_owned()))
+            .track(&TrackId(id.to_owned()))
             .and_then(|track| track.lyrics.as_ref())
         else {
             return Ok(parse_lrc(""));
@@ -540,7 +643,7 @@ impl<B: AudioBackend> Controller<B> {
         let Some((id, position)) = resume else {
             return;
         };
-        let Some(location) = self.player.playlist().get(&id).map(|track| track.audio.clone()) else {
+        let Some(location) = self.player.track(&id).map(|track| track.audio.clone()) else {
             return;
         };
         if self.backend.load(&location).is_ok() {
@@ -566,13 +669,17 @@ impl<B: AudioBackend> Controller<B> {
             self.generation.fetch_add(1, Ordering::SeqCst);
         }
         while let Ok(result) = self.probe_results.try_recv() {
-            let current = self.player.library().get(&result.job.id);
+            let current = self.player.track(&result.job.id);
             if self.probe_tokens.get(&result.job.id) == Some(&result.job.token)
                 && current.is_some_and(|track| track.audio == result.job.location && track.duration_ms.is_none())
                 && let Some(duration) = result.duration_ms
                 && self.player.set_duration(&result.job.id, duration)
             {
-                self.changed();
+                // 时长只影响列表里的显示：播放列表里有这首歌才需要刷新播放状态
+                if self.behavior.projects_library && self.player.queue().contains(&result.job.id) {
+                    self.changed();
+                }
+                self.library_changed();
             }
         }
         if self
@@ -587,9 +694,25 @@ impl<B: AudioBackend> Controller<B> {
         self.dirty_since = Some(Instant::now());
         self.events.push(ControllerEvent::StateChanged);
     }
+    fn library_changed(&mut self) {
+        self.dirty_since = Some(Instant::now());
+        let event = if self.behavior.projects_library {
+            ControllerEvent::LibraryChanged
+        } else {
+            ControllerEvent::StateChanged
+        };
+        self.events.push(event);
+    }
+    /// 曲库和播放状态都有变化：导入、从曲库移除。
+    fn both_changed(&mut self) {
+        if self.behavior.projects_library {
+            self.changed();
+        }
+        self.library_changed();
+    }
     fn schedule_probes(&mut self, ids: Vec<TrackId>) {
         for id in ids {
-            if let Some(track) = self.player.library().get(&id) {
+            if let Some(track) = self.player.track(&id) {
                 self.next_probe_token = self.next_probe_token.wrapping_add(1);
                 self.probe_tokens.insert(id.clone(), self.next_probe_token);
                 let _ = self.probe_jobs.send(ProbeJob {
@@ -604,7 +727,7 @@ impl<B: AudioBackend> Controller<B> {
         self.apply_step_with_playing(step, true);
     }
     fn apply_step_with_playing(&mut self, mut step: Step, playing: bool) {
-        let max_attempts = self.player.playlist().len();
+        let max_attempts = self.player.queue().len();
         let mut attempts = 0;
         loop {
             match step {
@@ -615,19 +738,26 @@ impl<B: AudioBackend> Controller<B> {
                         self.loaded = None;
                         break;
                     }
-                    let Some(track) = self.player.playlist().get(id) else {
+                    let Some(track) = self.player.track(id) else {
                         self.player.pause();
                         self.backend.pause();
                         break;
                     };
                     let location = track.audio.clone();
                     let title = track.title.clone();
+                    let previous_duration = track.duration_ms;
                     self.backend.pause();
                     match self.backend.load(&location) {
                         Ok(duration) => {
                             self.generation.fetch_add(1, Ordering::SeqCst);
                             self.loaded = Some(id.clone());
-                            self.player.set_duration(id, millis(duration));
+                            let duration_ms = millis(duration);
+                            if previous_duration != Some(duration_ms) {
+                                self.player.set_duration(id, duration_ms);
+                                if self.behavior.projects_library {
+                                    self.library_changed();
+                                }
+                            }
                             if playing {
                                 self.player.play();
                                 self.backend.play();
@@ -680,6 +810,17 @@ impl<B: AudioBackend> Drop for Controller<B> {
 }
 fn millis(duration: Duration) -> u64 {
     duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+fn track_view(track: &Track) -> TrackView {
+    TrackView {
+        id: track.id.0.clone(),
+        title: track.title.clone(),
+        artist: track.artist.clone(),
+        has_lyrics: track.lyrics.is_some(),
+        duration_ms: track.duration_ms,
+        cover_url: cover_url_for(&track.id.0, cfg!(any(target_os = "windows", target_os = "android"))),
+    }
 }
 
 pub(crate) fn cover_url_for(id: &str, http_scheme: bool) -> String {

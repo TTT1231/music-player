@@ -1,17 +1,10 @@
 use std::ops::RangeInclusive;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::library::{FileRef, ImportReport, Playlist, TrackId};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SavedPlaylist {
-    pub id: String,
-    pub name: String,
-    pub track_ids: Vec<TrackId>,
-}
+use crate::library::{FileRef, ImportReport, Library, Track, TrackId};
+use crate::playlist::{ALL_MUSIC_SOURCE, PlaylistError, PlaylistId, Playlists};
 
 /// 当前歌曲播放超过这个时长时，“上一首”回到本曲开头。
 pub const RESTART_THRESHOLD: Duration = Duration::from_secs(3);
@@ -50,13 +43,17 @@ pub enum Step {
     Stop,
 }
 
-/// 播放状态的唯一来源：播放列表、当前歌曲、播放与暂停、模式和各项调节。
+/// 播放状态的唯一来源：曲库、自建歌单、播放列表、当前歌曲、播放与暂停、模式和各项调节。
+/// 三份列表互相独立：曲库保存歌曲和文件，歌单和播放列表只引用曲库中的歌曲。
 /// 不接触音频输出，外壳根据返回的 [`Step`] 驱动音频引擎。
 #[derive(Debug, Clone)]
 pub struct Player {
-    pub(crate) playlist: Playlist,
-    pub(crate) library: Playlist,
-    pub(crate) saved_playlists: Vec<SavedPlaylist>,
+    pub(crate) library: Library,
+    /// 播放列表：上一首、下一首按这里的顺序走。
+    pub(crate) queue: Vec<TrackId>,
+    pub(crate) playlists: Playlists,
+    /// 播放列表最后一次是从哪里整份换来的：[`ALL_MUSIC_SOURCE`] 或歌单 id。
+    /// 之后调整播放列表（移出、排序、从搜索结果点播）不改变它。
     pub(crate) queue_source: Option<String>,
     pub(crate) current: Option<TrackId>,
     pub(crate) playing: bool,
@@ -68,17 +65,19 @@ pub struct Player {
 }
 
 impl Player {
-    /// 新建播放器：未选中歌曲、暂停，列表循环，音量 0.8，倍速 1.0，不升降调。
-    pub fn new(playlist: Playlist) -> Self {
-        Self::with_seed(playlist, DEFAULT_SEED)
+    /// 新建播放器：未选中歌曲、暂停，列表循环，音量 0.8，倍速 1.0，不升降调；
+    /// 播放列表先是整个曲库。
+    pub fn new(library: Library) -> Self {
+        Self::with_seed(library, DEFAULT_SEED)
     }
 
     /// 指定随机播放的种子。
-    pub fn with_seed(playlist: Playlist, seed: u64) -> Self {
+    pub fn with_seed(library: Library, seed: u64) -> Self {
+        let queue = library.tracks().iter().map(|track| track.id.clone()).collect();
         Self {
-            library: playlist.clone(),
-            playlist,
-            saved_playlists: Vec::new(),
+            library,
+            queue,
+            playlists: Playlists::default(),
             queue_source: None,
             current: None,
             playing: false,
@@ -91,102 +90,32 @@ impl Player {
         }
     }
 
-    pub fn playlist(&self) -> &Playlist {
-        &self.playlist
-    }
-
-    pub fn library(&self) -> &Playlist {
+    pub fn library(&self) -> &Library {
         &self.library
     }
-    pub fn saved_playlists(&self) -> &[SavedPlaylist] {
-        &self.saved_playlists
+
+    /// 播放列表里的歌曲，按播放顺序。
+    pub fn queue(&self) -> &[TrackId] {
+        &self.queue
     }
+
+    pub fn playlists(&self) -> &Playlists {
+        &self.playlists
+    }
+
+    /// 播放列表最后一次整份换来的来源；还没有从歌单点播过时是 `None`。
     pub fn queue_source(&self) -> Option<&str> {
         self.queue_source.as_deref()
     }
 
-    pub fn create_saved_playlist(&mut self, name: &str) -> Result<String, String> {
-        let name = name.trim();
-        if name.is_empty() || name.chars().count() > 40 {
-            return Err("歌单名称须为 1–40 个字符".into());
-        }
-        if name.to_lowercase() == "全部音乐"
-            || self
-                .saved_playlists
-                .iter()
-                .any(|p| p.name.to_lowercase() == name.to_lowercase())
-        {
-            return Err("这个名称已被使用".into());
-        }
-        let mut n = 1u64;
-        while self.saved_playlists.iter().any(|p| p.id == format!("list-{n}")) {
-            n += 1;
-        }
-        let id = format!("list-{n}");
-        self.saved_playlists.push(SavedPlaylist {
-            id: id.clone(),
-            name: name.to_owned(),
-            track_ids: Vec::new(),
-        });
-        Ok(id)
+    /// 按歌曲 id 查曲库。
+    pub fn track(&self, id: &TrackId) -> Option<&Track> {
+        self.library.get(id)
     }
 
-    pub fn add_to_saved_playlist(&mut self, id: &str, tracks: &[TrackId]) -> Result<(), String> {
-        let list = self
-            .saved_playlists
-            .iter_mut()
-            .find(|p| p.id == id)
-            .ok_or("歌单不存在")?;
-        for track in tracks {
-            if self.library.get(track).is_some() && !list.track_ids.contains(track) {
-                list.track_ids.push(track.clone());
-            }
-        }
-        Ok(())
-    }
-
-    pub fn remove_from_saved_playlist(&mut self, id: &str, track: &TrackId) -> Result<(), String> {
-        let list = self
-            .saved_playlists
-            .iter_mut()
-            .find(|p| p.id == id)
-            .ok_or("歌单不存在")?;
-        list.track_ids.retain(|entry| entry != track);
-        Ok(())
-    }
-
-    pub fn play_saved_playlist(&mut self, id: Option<&str>, start: Option<&TrackId>) -> Result<Step, String> {
-        let source = id_for_source(id);
-        let tracks = match id {
-            Some(id) => self
-                .saved_playlists
-                .iter()
-                .find(|p| p.id == id)
-                .ok_or("歌单不存在")?
-                .track_ids
-                .iter()
-                .filter_map(|id| self.library.get(id).cloned())
-                .collect(),
-            None => self.library.tracks().to_vec(),
-        };
-        let playlist = Playlist::from_tracks(tracks);
-        let id = start
-            .cloned()
-            .or_else(|| playlist.tracks().first().map(|track| track.id.clone()))
-            .ok_or("歌单为空")?;
-        if playlist.get(&id).is_none() {
-            return Err("歌曲不在歌单中".into());
-        }
-        self.playlist = playlist;
-        self.queue_source = Some(source);
-        Ok(self.play_track(&id))
-    }
-
-    /// 更新歌曲的已探测时长；歌曲不存在时返回 false。
+    /// 更新歌曲的已探测时长；歌曲不在曲库里时返回 false。
     pub fn set_duration(&mut self, id: &TrackId, duration_ms: u64) -> bool {
-        let updated = self.library.set_duration(id, duration_ms);
-        self.playlist.set_duration(id, duration_ms);
-        updated
+        self.library.set_duration(id, duration_ms)
     }
 
     pub fn current(&self) -> Option<&TrackId> {
@@ -236,12 +165,57 @@ impl Player {
         self.pitch
     }
 
-    /// 选中并播放某首歌；不在列表里时停止。
+    /// 选中并播放某首歌；不在播放列表里时停止。
     pub fn play_track(&mut self, id: &TrackId) -> Step {
-        if self.playlist.position(id).is_none() {
+        if !self.queue.contains(id) {
             return self.stop();
         }
         self.start(id.clone())
+    }
+
+    /// 从某个列表（如搜索结果）播放：播放列表换成 `ids` 的顺序（重复的和曲库里没有的忽略），
+    /// 从 `start` 开始，播放列表不再对应任何歌单。`start` 不在结果里时不做任何事，返回 `None`。
+    pub fn play_from(&mut self, ids: &[TrackId], start: &TrackId) -> Option<Step> {
+        let mut queue = Vec::with_capacity(ids.len());
+        for id in ids {
+            if self.library.get(id).is_some() && !queue.contains(id) {
+                queue.push(id.clone());
+            }
+        }
+        if !queue.iter().any(|id| id == start) {
+            return None;
+        }
+        self.queue = queue;
+        self.queue_source = None;
+        Some(self.start(start.clone()))
+    }
+
+    /// 从歌单播放：`None` 是「全部音乐」，否则是自建歌单。播放列表整份换成它的顺序，
+    /// 从 `start` 开始（不指定则是第一首），并记下来源。
+    pub fn play_playlist(&mut self, id: Option<&PlaylistId>, start: Option<&TrackId>) -> Result<Step, PlaylistError> {
+        let tracks: Vec<TrackId> = match id {
+            None => self.library.tracks().iter().map(|track| track.id.clone()).collect(),
+            Some(id) => self.playlists.get(id).ok_or(PlaylistError::NotFound)?.tracks.clone(),
+        };
+        let start = start
+            .cloned()
+            .or_else(|| tracks.first().cloned())
+            .ok_or(PlaylistError::Empty)?;
+        let step = self.play_from(&tracks, &start).ok_or(PlaylistError::NotInList)?;
+        self.queue_source = Some(id.map_or_else(|| ALL_MUSIC_SOURCE.to_owned(), |id| id.0.clone()));
+        Ok(step)
+    }
+
+    /// 把歌曲追加到播放列表末尾，已在列表里或曲库里没有的跳过。返回加入的数量。
+    pub fn enqueue(&mut self, ids: impl IntoIterator<Item = TrackId>) -> usize {
+        let mut added = 0;
+        for id in ids {
+            if self.library.get(&id).is_some() && !self.queue.contains(&id) {
+                self.queue.push(id);
+                added += 1;
+            }
+        }
+        added
     }
 
     pub fn play(&mut self) {
@@ -255,7 +229,7 @@ impl Player {
     /// 用户点“下一首”：任何模式都换歌；随机模式随机选另一首，其余按列表顺序并在末尾回到开头。
     #[allow(clippy::should_implement_trait, reason = "“下一首”命令，不是迭代器")]
     pub fn next(&mut self) -> Option<Step> {
-        let len = self.playlist.len();
+        let len = self.queue.len();
         if len == 0 {
             return None;
         }
@@ -269,7 +243,7 @@ impl Player {
 
     /// 用户点“上一首”：已播放超过 [`RESTART_THRESHOLD`] 时回到本曲开头，否则换到上一首。
     pub fn prev(&mut self, position: Duration) -> Option<Step> {
-        let len = self.playlist.len();
+        let len = self.queue.len();
         if len == 0 {
             return None;
         }
@@ -287,7 +261,7 @@ impl Player {
 
     /// 当前歌曲自然播完，按播放模式决定下一步。
     pub fn on_ended(&mut self) -> Step {
-        let len = self.playlist.len();
+        let len = self.queue.len();
         let Some(index) = self.current_index() else {
             return self.stop();
         };
@@ -308,67 +282,89 @@ impl Player {
 
     /// 当前歌曲无法读取（文件被移动或删除）：跳到列表中的下一首；列表只剩这一首时停止。
     pub fn on_unreadable(&mut self) -> Step {
-        let len = self.playlist.len();
+        let len = self.queue.len();
         match self.current_index() {
             Some(index) if len > 1 => self.start_at((index + 1) % len),
             _ => self.stop(),
         }
     }
 
+    /// 导入到曲库，按导入顺序排在末尾；不改变播放列表，需要入列时由外壳调用 [`Self::enqueue`]。
     pub fn import(&mut self, files: impl IntoIterator<Item = FileRef>) -> ImportReport {
-        self.import_inner(files, true)
+        self.library.import(files)
     }
 
-    pub fn import_library(&mut self, files: impl IntoIterator<Item = FileRef>) -> ImportReport {
-        self.import_inner(files, false)
-    }
-
-    fn import_inner(&mut self, files: impl IntoIterator<Item = FileRef>, into_queue: bool) -> ImportReport {
-        let report = self.library.import(files);
-        let mut ids: Vec<_> = self.playlist.tracks().iter().map(|t| t.id.clone()).collect();
-        if into_queue {
-            for id in &report.added {
-                if !ids.contains(id) {
-                    ids.push(id.clone());
-                }
-            }
-        }
-        self.playlist = Playlist::from_tracks(ids.iter().filter_map(|id| self.library.get(id).cloned()).collect());
-        report
-    }
-
-    /// 移出列表。移除的是当前歌曲时，选中原来排在它后面的歌（末尾则回到第一首），
-    /// 播放状态不变并返回 `Some(Step::Play)`；列表变空时返回 `Some(Step::Stop)`。
+    /// 只移出播放列表，曲库、歌单和文件都不动。移除的是当前歌曲时，选中原来排在它后面的歌
+    /// （末尾则回到第一首），播放状态不变并返回 `Some(Step::Play)`；列表变空时返回 `Some(Step::Stop)`。
     pub fn remove(&mut self, id: &TrackId) -> Option<Step> {
-        self.library.remove(id);
-        for list in &mut self.saved_playlists {
-            list.track_ids.retain(|track| track != id);
-        }
-        self.remove_from_queue(id)
-    }
-
-    pub fn remove_from_queue(&mut self, id: &TrackId) -> Option<Step> {
-        let removed_at = self.playlist.position(id)?;
-        self.playlist.remove(id);
+        let removed_at = self.queue.iter().position(|track| track == id)?;
+        self.queue.remove(removed_at);
         if self.current.as_ref() != Some(id) {
             return None;
         }
-        if self.playlist.is_empty() {
+        if self.queue.is_empty() {
             self.current = None;
             self.playing = false;
             return Some(Step::Stop);
         }
-        let next = self.playlist.tracks()[removed_at % self.playlist.len()].id.clone();
+        let next = self.queue[removed_at % self.queue.len()].clone();
         self.current = Some(next.clone());
         Some(Step::Play(next))
     }
 
+    /// 从曲库移除歌曲：同时移出播放列表和所有歌单。移除的是当前歌曲时按 [`Self::remove`] 的规则接下一首；
+    /// 歌曲不在曲库里时返回 `None`。
+    pub fn remove_from_library(&mut self, id: &TrackId) -> Option<Step> {
+        self.library.remove(id)?;
+        self.playlists.retain_tracks(|track| track != id);
+        self.remove(id)
+    }
+
+    /// 把播放列表中 `from` 位置的歌曲移到 `to` 位置；越界时不做任何事。
     pub fn move_track(&mut self, from: usize, to: usize) {
-        self.playlist.move_track(from, to);
+        if from >= self.queue.len() || to >= self.queue.len() || from == to {
+            return;
+        }
+        let id = self.queue.remove(from);
+        self.queue.insert(to, id);
+    }
+
+    /// 新建空歌单，名称规则见 [`Playlists::create`]。
+    pub fn create_playlist(&mut self, name: &str) -> Result<PlaylistId, PlaylistError> {
+        self.playlists.create(name, SystemTime::now())
+    }
+
+    pub fn rename_playlist(&mut self, id: &PlaylistId, name: &str) -> Result<(), PlaylistError> {
+        self.playlists.rename(id, name)
+    }
+
+    /// 删除歌单；歌单里的歌曲仍留在曲库，播放列表不受影响。
+    pub fn delete_playlist(&mut self, id: &PlaylistId) -> Result<(), PlaylistError> {
+        self.playlists.delete(id)
+    }
+
+    /// 把歌曲按给定顺序加到歌单末尾，已在歌单里或曲库里没有的跳过。返回加入的数量。
+    pub fn add_to_playlist(&mut self, id: &PlaylistId, tracks: &[TrackId]) -> Result<usize, PlaylistError> {
+        if self.playlists.get(id).is_none() {
+            return Err(PlaylistError::NotFound);
+        }
+        let known: Vec<TrackId> = tracks
+            .iter()
+            .filter(|track| self.library.get(track).is_some())
+            .cloned()
+            .collect();
+        self.playlists.add_tracks(id, &known)
+    }
+
+    /// 把歌曲移出歌单；曲库和播放列表不受影响。歌单里没有这首歌时什么都不做。
+    pub fn remove_from_playlist(&mut self, id: &PlaylistId, track: &TrackId) -> Result<(), PlaylistError> {
+        self.playlists.remove_track(id, track)
     }
 
     fn current_index(&self) -> Option<usize> {
-        self.current.as_ref().and_then(|id| self.playlist.position(id))
+        self.current
+            .as_ref()
+            .and_then(|id| self.queue.iter().position(|track| track == id))
     }
 
     fn start(&mut self, id: TrackId) -> Step {
@@ -378,7 +374,7 @@ impl Player {
     }
 
     fn start_at(&mut self, index: usize) -> Step {
-        let id = self.playlist.tracks()[index].id.clone();
+        let id = self.queue[index].clone();
         self.start(id)
     }
 
@@ -387,9 +383,9 @@ impl Player {
         Step::Stop
     }
 
-    /// 随机选一首不是当前歌曲的位置；列表只有一首时就是它。
+    /// 随机选一个不是当前歌曲的位置；列表只有一首时就是它。
     fn random_other(&mut self) -> usize {
-        let len = self.playlist.len();
+        let len = self.queue.len();
         match self.current_index() {
             Some(current) if len > 1 => {
                 let pick = self.next_random(len - 1);
@@ -409,8 +405,4 @@ impl Player {
         self.rng = x;
         (x.wrapping_mul(0x2545_F491_4F6C_DD1D) % below as u64) as usize
     }
-}
-
-fn id_for_source(id: Option<&str>) -> String {
-    id.unwrap_or("all").to_owned()
 }

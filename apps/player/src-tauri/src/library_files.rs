@@ -125,7 +125,7 @@ impl LibraryFiles {
             {
                 error = Some(io::Error::new(
                     reason.kind(),
-                    format!("已移出播放列表，无法删除 {location}：{reason}"),
+                    format!("已移出曲库，无法删除 {location}：{reason}"),
                 ));
             }
         }

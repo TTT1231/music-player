@@ -2,11 +2,11 @@
 
 mod common;
 
-use common::{file, ids, playlist};
+use common::{file, ids, library};
 use music_core::{PlayMode, Player, load_session, save_session};
 
 fn used_player() -> Player {
-    let list = playlist(&["a - 一", "a - 二", "a - 三"]);
+    let list = library(&["a - 一", "a - 二", "a - 三"]);
     let ids = ids(&list);
     let mut p = Player::new(list);
     p.import([file("a - 二.lrc")]);
@@ -28,7 +28,7 @@ fn saves_and_restores_list_current_track_mode_and_volume_paused() {
     save_session(&path, &before.session()).unwrap();
     let restored = Player::restore(load_session(&path).unwrap().expect("已保存"));
 
-    assert_eq!(restored.playlist(), before.playlist());
+    assert_eq!(restored.queue(), before.queue());
     assert_eq!(restored.current(), before.current());
     assert_eq!(restored.mode(), PlayMode::Single);
     assert_eq!(restored.volume(), 0.35);
@@ -70,7 +70,7 @@ fn saving_again_replaces_the_file_and_leaves_no_temp_files() {
 fn duration_survives_round_trip_and_legacy_sessions_default_to_none() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("session.json");
-    let mut list = playlist(&["a - 一", "a - 二"]);
+    let mut list = library(&["a - 一", "a - 二"]);
     let track_ids = ids(&list);
     assert!(list.set_duration(&track_ids[0], 183_456));
     let mut player = Player::new(list);
@@ -82,8 +82,10 @@ fn duration_survives_round_trip_and_legacy_sessions_default_to_none() {
     assert_eq!(restored.tracks[1].duration_ms, Some(42_000));
 
     let mut legacy: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    for track in legacy["tracks"].as_array_mut().unwrap() {
-        track.as_object_mut().unwrap().remove("duration_ms");
+    for list in ["tracks", "library"] {
+        for track in legacy[list].as_array_mut().unwrap() {
+            track.as_object_mut().unwrap().remove("duration_ms");
+        }
     }
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let legacy = load_session(&path).unwrap().unwrap();
@@ -100,6 +102,35 @@ fn legacy_session_restores_the_original_list_as_library_and_queue() {
     object.remove("queue_source");
     let restored = Player::restore(serde_json::from_value(json).unwrap());
     assert_eq!(restored.library().tracks(), original.tracks);
-    assert_eq!(restored.playlist().tracks(), original.tracks);
-    assert!(restored.saved_playlists().is_empty());
+    assert_eq!(
+        restored.queue(),
+        original.tracks.iter().map(|track| track.id.clone()).collect::<Vec<_>>()
+    );
+    assert!(restored.playlists().is_empty());
+}
+
+#[test]
+fn reads_the_desktop_session_with_a_separate_library_queue_and_playlist() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.json");
+    let library = library(&["a - 一", "a - 二", "a - 三"]);
+    let songs = library.tracks();
+    let json = serde_json::json!({
+        "tracks": [&songs[2], &songs[0]],
+        "library": songs,
+        "saved_playlists": [{ "id": "list-1", "name": "收藏", "trackIds": [&songs[2].id, &songs[1].id, &songs[0].id] }],
+        "queue_source": "list-1",
+        "current": &songs[0].id,
+        "mode": "shuffle",
+        "volume": 0.5,
+    });
+    std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+    let player = Player::restore(load_session(&path).unwrap().unwrap());
+    assert_eq!(player.library(), &library);
+    assert_eq!(player.queue(), [songs[2].id.clone(), songs[0].id.clone()]);
+    assert_eq!(player.current(), Some(&songs[0].id));
+    assert_eq!(player.queue_source(), Some("list-1"));
+    assert!(!player.is_playing());
+    assert_eq!(serde_json::to_value(player.session()).unwrap(), json);
 }

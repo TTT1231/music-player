@@ -11,13 +11,19 @@ use std::time::{Duration, Instant};
 
 use music_audio::EngineEvent;
 
-use crate::controller::{AudioBackend, Controller, ControllerEvent, PlayerState};
+use crate::controller::{AudioBackend, Controller, ControllerEvent, LibraryState, PlayerState};
 
 #[derive(Debug, Clone)]
 pub enum Projection {
     State(PlayerState),
-    Position { ms: u64 },
-    Notice { title: String },
+    /// 曲库和自建歌单，与播放状态分开投影，每次歌单操作或时长探测不必重发播放状态。
+    Library(LibraryState),
+    Position {
+        ms: u64,
+    },
+    Notice {
+        title: String,
+    },
     DeviceError(String),
 }
 
@@ -140,6 +146,7 @@ fn run<B: AudioBackend>(
                 for event in events {
                     match event {
                         ControllerEvent::StateChanged => emit(Projection::State(controller.state())),
+                        ControllerEvent::LibraryChanged => emit(Projection::Library(controller.library_state())),
                         ControllerEvent::Notice { title } => emit(Projection::Notice { title }),
                         ControllerEvent::DeviceError(error) => emit(Projection::DeviceError(error)),
                     }
@@ -148,9 +155,8 @@ fn run<B: AudioBackend>(
             Err(error) => eprintln!("更新播放会话失败：{error}"),
         }
         if last_position.elapsed() >= Duration::from_millis(200) {
-            let state = controller.state();
-            if state.playing {
-                emit(Projection::Position { ms: state.position_ms });
+            if let Some(ms) = controller.playing_position_ms() {
+                emit(Projection::Position { ms });
             }
             last_position = Instant::now();
         }

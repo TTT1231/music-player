@@ -28,6 +28,8 @@ export type PlayerState = {
     durationMs: number | null;
 };
 export type SavedPlaylist = { id: string; name: string; trackIds: string[] };
+/** 曲库和自建歌单的独立快照，供安卓歌单页使用。 */
+export type LibraryState = { tracks: TrackView[]; playlists: SavedPlaylist[] };
 export type ImportResult = {
     added: string[];
     withLyrics: number;
@@ -51,17 +53,18 @@ export type Notice = { kind: "unreadable"; title: string };
 export const commands = {
     appInfo: () => invoke<AppInfo>("app_info"),
     getState: () => invoke<PlayerState>("get_state"),
-    importPaths: (paths: string[], intoQueue = true) =>
-        invoke<ImportResult>("import_paths", intoQueue ? { paths } : { paths, intoQueue }),
-    pickAndImport: (kind: "files" | "folder", intoQueue = true) =>
-        invoke<ImportResult | null>("pick_and_import", intoQueue ? { kind } : { kind, intoQueue }),
+    getLibrary: () => invoke<LibraryState>("get_library"),
+    importPaths: (paths: string[], intoQueue?: boolean) =>
+        invoke<ImportResult>("import_paths", intoQueue === undefined ? { paths } : { paths, intoQueue }),
+    pickAndImport: (kind: "files" | "folder", intoQueue?: boolean) =>
+        invoke<ImportResult | null>("pick_and_import", intoQueue === undefined ? { kind } : { kind, intoQueue }),
     playTrack: (id: string) => invoke<void>("play_track", { id }),
-    createPlaylist: (name: string) => invoke<string>("create_playlist", { name }),
-    addPlaylistTracks: (id: string, tracks: string[]) => invoke<void>("add_playlist_tracks", { id, tracks }),
-    removePlaylistTrack: (id: string, track: string) => invoke<void>("remove_playlist_track", { id, track }),
     playPlaylist: (id: string | null, track: string | null = null) => invoke<void>("play_playlist", { id, track }),
-    removeQueueTrack: (id: string) => invoke<void>("remove_queue_track", { id }),
+    /** 按搜索结果的顺序替换播放列表，并从指定歌曲开始。 */
+    playFrom: (ids: string[], startId: string) => invoke<boolean>("play_from", { ids, startId }),
     removeTrack: (id: string) => invoke<void>("remove_track", { id }),
+    /** 只移出播放列表：歌单和曲库里的文件都不动 */
+    removeQueueTrack: (id: string) => invoke<void>("remove_queue_track", { id }),
     play: () => invoke<void>("play"),
     pause: () => invoke<void>("pause"),
     toggle: () => invoke<void>("toggle"),
@@ -73,6 +76,14 @@ export const commands = {
     setRate: (rate: number) => invoke<number>("set_rate", { rate }),
     setPitch: (semitones: number) => invoke<number>("set_pitch", { semitones }),
     moveTrack: (from: number, to: number) => invoke<void>("move_track", { from, to }),
+    /** 新建空歌单并返回它的 id；名称不能为空、不能重名，也不能叫「全部音乐」 */
+    createPlaylist: (name: string) => invoke<string>("create_playlist", { name }),
+    renamePlaylist: (id: string, name: string) => invoke<void>("rename_playlist", { id, name }),
+    /** 删除歌单；歌单里的歌曲仍留在曲库 */
+    deletePlaylist: (id: string) => invoke<void>("delete_playlist", { id }),
+    /** 把歌曲按给定顺序加到歌单末尾，返回加入的数量 */
+    addPlaylistTracks: (id: string, tracks: string[]) => invoke<number>("add_playlist_tracks", { id, tracks }),
+    removePlaylistTrack: (id: string, track: string) => invoke<void>("remove_playlist_track", { id, track }),
     getLyrics: (id: string) => invoke<Lyrics>("get_lyrics", { id }),
     toggleDesktopLyrics: () => invoke<boolean>("toggle_desktop_lyrics"),
     // 以下命令只在安卓有效（packages/tauri-plugin-playback），其他平台为空操作
@@ -102,6 +113,8 @@ export const listenPlaybackEvents = (handler: (event: PlaybackEvent) => void): P
 
 export const listenState = (handler: (state: PlayerState) => void): Promise<UnlistenFn> =>
     listen<PlayerState>("state", event => handler(event.payload));
+export const listenLibrary = (handler: (library: LibraryState) => void): Promise<UnlistenFn> =>
+    listen<LibraryState>("library", event => handler(event.payload));
 export const listenPosition = (handler: (position: Position) => void): Promise<UnlistenFn> =>
     listen<Position>("position", event => handler(event.payload));
 export const listenNotice = (handler: (notice: Notice) => void): Promise<UnlistenFn> =>

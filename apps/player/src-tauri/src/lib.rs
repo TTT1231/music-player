@@ -89,6 +89,7 @@ pub fn run() {
                 move |event| {
                     let result = match event {
                         Projection::State(state) => handle.emit("state", state),
+                        Projection::Library(library) => handle.emit("library", library),
                         Projection::Position { ms } => handle.emit("position", serde_json::json!({ "ms": ms })),
                         Projection::Notice { title } => {
                             handle.emit("notice", serde_json::json!({ "kind": "unreadable", "title": title }))
@@ -113,15 +114,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::app_info,
             ipc::get_state,
+            ipc::get_library,
             ipc::import_paths,
             ipc::pick_and_import,
             ipc::play_track,
-            ipc::create_playlist,
-            ipc::add_playlist_tracks,
-            ipc::remove_playlist_track,
+            ipc::play_from,
             ipc::play_playlist,
-            ipc::remove_queue_track,
             ipc::remove_track,
+            ipc::remove_queue_track,
             ipc::play,
             ipc::pause,
             ipc::toggle,
@@ -133,6 +133,11 @@ pub fn run() {
             ipc::set_rate,
             ipc::set_pitch,
             ipc::move_track,
+            ipc::create_playlist,
+            ipc::rename_playlist,
+            ipc::delete_playlist,
+            ipc::add_playlist_tracks,
+            ipc::remove_playlist_track,
             ipc::get_lyrics,
             ipc::toggle_desktop_lyrics,
         ])

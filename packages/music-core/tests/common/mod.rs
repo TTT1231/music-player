@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use music_core::{FileRef, Playlist, TrackId};
+use music_core::{FileRef, Library, TrackId};
 
 /// 仓库根的 fixtures/music/，由 scripts/gen-fixtures.mjs 生成。
 pub fn fixtures() -> PathBuf {
@@ -14,17 +14,17 @@ pub fn file(name: &str) -> FileRef {
     FileRef::new(format!("/music/{name}"), name)
 }
 
-/// 由若干歌曲文件名组成的播放列表（都没有歌词）。
-pub fn playlist(names: &[&str]) -> Playlist {
-    let mut list = Playlist::new();
-    list.import(names.iter().map(|n| file(&format!("{n}.mp3"))));
-    list
+/// 由若干歌曲文件名组成的曲库（都没有歌词）。
+pub fn library(names: &[&str]) -> Library {
+    let mut library = Library::new();
+    library.import(names.iter().map(|n| file(&format!("{n}.mp3"))));
+    library
 }
 
-pub fn ids(list: &Playlist) -> Vec<TrackId> {
-    list.tracks().iter().map(|t| t.id.clone()).collect()
+pub fn ids(library: &Library) -> Vec<TrackId> {
+    library.tracks().iter().map(|t| t.id.clone()).collect()
 }
 
-pub fn titles(list: &Playlist) -> Vec<String> {
-    list.tracks().iter().map(|t| t.title.clone()).collect()
+pub fn titles(library: &Library) -> Vec<String> {
+    library.tracks().iter().map(|t| t.title.clone()).collect()
 }

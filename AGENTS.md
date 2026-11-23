@@ -9,7 +9,7 @@ project/
 ├── apps/
 │   └── player/              # Tauri 应用：src/ 界面，src-tauri/ 外壳，e2e/ 端到端测试
 ├── packages/                # 内部包，桌面和安卓共用
-│   ├── music-core/          # Rust：曲库、歌词、导入配对、播放模式、保存
+│   ├── music-core/          # Rust：曲库、歌单、歌词、导入配对、播放模式、保存
 │   ├── music-audio/         # Rust：解码、倍速与升降调、封面
 │   └── tauri-plugin-playback/ # Rust+Kotlin：安卓前台播放、通知栏、系统文件选择、按 URI 打开
 ├── fixtures/music/          # 各层测试共用的生成音频和歌词，进 git

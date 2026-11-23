@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use music_audio::EngineEvent;
 use music_player_shell_lib::actor::{Actor, Projection};
-use music_player_shell_lib::controller::{AudioBackend, LocationResolver, path_resolver};
+use music_player_shell_lib::controller::{AudioBackend, LocationResolver, PlatformBehavior, path_resolver};
 use music_player_shell_lib::ipc::{CoverStore, get_cover, get_cover_with, import_files};
 
 struct FakeAudio;
@@ -224,5 +224,51 @@ fn slow_cover_probe_does_not_block_import_or_restore_an_old_cover() {
     importer.join().unwrap();
     assert!(result.unwrap().is_ok(), "封面读取不应阻塞导入");
     assert!(reader.join().unwrap().is_none(), "过期封面不能写回");
+    actor.shutdown();
+}
+
+#[test]
+fn library_changes_are_projected_as_their_own_event_only_where_the_ui_reads_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../fixtures/music/No Artist Instrumental.mp3")
+        .to_string_lossy()
+        .into_owned();
+    let (events, received) = mpsc::channel();
+    let actor = Actor::spawn(
+        directory.path().join("session.json"),
+        path_resolver(),
+        |_| Ok(FakeAudio),
+        move |event| {
+            events.send(event).unwrap();
+        },
+    )
+    .unwrap();
+    actor.call(move |c| c.import_paths(&[fixture])).unwrap().unwrap();
+    assert!(matches!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Projection::State(_)
+    ));
+    // 等时长探测完成：它会让播放状态再投影一次
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !actor.call(|c| c.state().tracks[0].duration_ms.is_some()).unwrap() {
+        assert!(Instant::now() < deadline, "时长没有探测出来");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // 桌面界面只读播放状态：导入和时长都没有另外投影成 library 事件
+    while let Ok(event) = received.try_recv() {
+        assert!(matches!(event, Projection::State(_)), "桌面不应收到 {event:?}");
+    }
+
+    actor.call(|c| c.set_behavior(PlatformBehavior::android())).unwrap();
+    let night = actor.call(|c| c.create_playlist("夜跑")).unwrap().unwrap();
+    let Projection::Library(library) = received.recv_timeout(Duration::from_secs(1)).unwrap() else {
+        panic!("歌单变化应投影为 library 事件");
+    };
+    assert_eq!(library.playlists[0].id, night);
+    assert_eq!(library.playlists[0].name, "夜跑");
+    assert_eq!(library.tracks.len(), 1);
+    // 没有播放状态变化时不发多余的 state 事件
+    assert!(received.recv_timeout(Duration::from_millis(300)).is_err());
     actor.shutdown();
 }

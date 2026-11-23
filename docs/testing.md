@@ -79,7 +79,7 @@ pnpm --filter @music/player exec tauri android build --debug --target aarch64
 adb install -r apps/player/src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk
 ```
 
-Windows 需要开启[开发者模式](https://learn.microsoft.com/windows/apps/get-started/enable-your-device-for-development)以允许符号链接（tauri 把 .so 链接进 jniLibs）。Gradle 依赖下载走本地代理时，给 gradle 传 `-Dhttps.proxyHost=… -Dhttps.proxyPort=…`。安卓端的文件选择、后台与锁屏播放、通知栏控制和音频焦点目前在真机上手动验证。
+Windows 需要开启[开发者模式](https://learn.microsoft.com/windows/apps/get-started/enable-your-device-for-development)以允许符号链接（tauri 把 .so 链接进 jniLibs）。Gradle 依赖下载走本地代理时，给 gradle 传 `-Dhttps.proxyHost=… -Dhttps.proxyPort=…`。安卓端的文件选择、歌单流程、后台与锁屏播放、通知栏控制和音频焦点目前在真机上手动验证。
 
 测试素材在 `fixtures/music/`，由 [生成脚本](../scripts/gen-fixtures.mjs) 产出，需要 PATH 中有带 libmp3lame、libvorbis 的 ffmpeg：
 

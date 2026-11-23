@@ -26,6 +26,14 @@ test("uses the song title glyph and a stable color when no cover can be read", (
     expect(container.textContent).toBe("♪");
 });
 
+test("uses the given colors for built-in covers instead of hashing the id", () => {
+    const { container } = render(<Cover id="all" title="全部音乐" size={56} colors={["#2440b8", "#eef0ea"]} />);
+    const cover = container.querySelector(".cover") as HTMLElement;
+    expect(cover.style.getPropertyValue("--bg")).toBe("#2440b8");
+    expect(cover.style.getPropertyValue("--fg")).toBe("#eef0ea");
+    expect(cover.textContent).toBe("全");
+});
+
 test("retries a missing cover when the same song is reimported", () => {
     const url = "http://cover.localhost/song";
     const { container, rerender } = render(<Cover id="song" title="歌" coverUrl={url} revision={1} />);

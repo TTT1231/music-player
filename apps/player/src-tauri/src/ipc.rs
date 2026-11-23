@@ -12,7 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::actor::Actor;
 use crate::audio_backend::{AudioAvailability, DeviceBackend};
-use crate::controller::{AudioBackend, Controller, ImportResult, LocationResolver, PlayerState};
+use crate::controller::{AudioBackend, Controller, ImportResult, LibraryState, LocationResolver, PlayerState};
 use crate::cover::CoverCache;
 use crate::library_files::LibraryFiles;
 #[cfg(desktop)]
@@ -139,17 +139,18 @@ pub fn get_state(actor: State<'_, DeviceActor>) -> Result<PlayerState, String> {
     actor.call(|controller| controller.state())
 }
 
+/// 曲库和自建歌单，与播放状态分开：安卓的首页、歌单页和选歌页读它。
+#[tauri::command(async)]
+pub fn get_library(actor: State<'_, DeviceActor>) -> Result<LibraryState, String> {
+    actor.call(|controller| controller.library_state())
+}
+
 #[tauri::command(async)]
 pub fn import_paths(app: AppHandle, paths: Vec<String>, into_queue: Option<bool>) -> Result<ImportResult, String> {
     #[cfg(desktop)]
     {
         let files = files_from_paths(&paths).map_err(|error| error.to_string())?;
-        import_managed(
-            &app,
-            files,
-            |location| std::fs::remove_file(location),
-            into_queue.unwrap_or(true),
-        )
+        import_managed(&app, files, |location| std::fs::remove_file(location), into_queue)
     }
     #[cfg(not(desktop))]
     {
@@ -162,16 +163,18 @@ fn import_managed(
     app: &AppHandle,
     files: Vec<music_core::FileRef>,
     remove_source: impl Fn(&str) -> std::io::Result<()> + Send + 'static,
-    into_queue: bool,
+    into_queue: Option<bool>,
 ) -> Result<ImportResult, String> {
     let library = app.state::<LibraryFiles>().inner().clone();
     import_with(
         &app.state::<DeviceActor>(),
         &app.state::<CoverStore>(),
         move |controller| {
-            controller
-                .import_managed_with_queue(files, &library, remove_source, into_queue)
-                .map_err(|error| error.to_string())
+            match into_queue {
+                Some(into_queue) => controller.import_managed_with_queue(files, &library, remove_source, into_queue),
+                None => controller.import_managed(files, &library, remove_source),
+            }
+            .map_err(|error| error.to_string())
         },
     )
 }
@@ -223,7 +226,7 @@ pub async fn pick_and_import(
             &app,
             files,
             move |uri| tauri_plugin_playback::delete_source(&handle, uri).map_err(std::io::Error::other),
-            into_queue.unwrap_or(true),
+            into_queue,
         )
         .map(Some)
     }
@@ -253,15 +256,21 @@ pub fn play_track(
 }
 #[tauri::command(async)]
 pub fn create_playlist(actor: State<'_, DeviceActor>, name: String) -> Result<String, String> {
-    actor.call(move |c| c.create_playlist(name))?
+    actor
+        .call(move |c| c.create_playlist(&name))?
+        .map_err(|error| error.to_string())
 }
 #[tauri::command(async)]
-pub fn add_playlist_tracks(actor: State<'_, DeviceActor>, id: String, tracks: Vec<String>) -> Result<(), String> {
-    actor.call(move |c| c.add_playlist_tracks(id, tracks))?
+pub fn add_playlist_tracks(actor: State<'_, DeviceActor>, id: String, tracks: Vec<String>) -> Result<usize, String> {
+    actor
+        .call(move |c| c.add_playlist_tracks(&id, &tracks))?
+        .map_err(|error| error.to_string())
 }
 #[tauri::command(async)]
 pub fn remove_playlist_track(actor: State<'_, DeviceActor>, id: String, track: String) -> Result<(), String> {
-    actor.call(move |c| c.remove_playlist_track(id, track))?
+    actor
+        .call(move |c| c.remove_playlist_track(&id, &track))?
+        .map_err(|error| error.to_string())
 }
 #[tauri::command(async)]
 pub fn play_playlist(
@@ -270,7 +279,10 @@ pub fn play_playlist(
     id: Option<String>,
     track: Option<String>,
 ) -> Result<(), String> {
-    with_output(&actor, &audio, move |c| c.play_playlist(id, track))?
+    with_output(&actor, &audio, move |c| {
+        c.play_playlist(id.as_deref(), track.as_deref())
+    })?
+    .map_err(|error| error.to_string())
 }
 #[tauri::command(async)]
 pub fn remove_queue_track(actor: State<'_, DeviceActor>, id: String) -> Result<(), String> {
@@ -328,6 +340,29 @@ pub fn move_track(actor: State<'_, DeviceActor>, from: usize, to: usize) -> Resu
     actor.call(move |c| c.move_track(from, to))
 }
 
+/// 从歌单或搜索结果播放：播放列表换成 `ids` 的顺序，从 `start_id` 开始。
+#[tauri::command(async)]
+pub fn play_from(
+    actor: State<'_, DeviceActor>,
+    audio: State<'_, AudioAvailability>,
+    ids: Vec<String>,
+    start_id: String,
+) -> Result<bool, String> {
+    with_output(&actor, &audio, move |c| c.play_from(&ids, &start_id))
+}
+#[tauri::command(async)]
+pub fn rename_playlist(actor: State<'_, DeviceActor>, id: String, name: String) -> Result<(), String> {
+    actor
+        .call(move |c| c.rename_playlist(&id, &name))
+        .and_then(|result| result.map_err(|error| error.to_string()))
+}
+/// 删除歌单；歌单里的歌曲仍留在曲库，播放列表不受影响。
+#[tauri::command(async)]
+pub fn delete_playlist(actor: State<'_, DeviceActor>, id: String) -> Result<(), String> {
+    actor
+        .call(move |c| c.delete_playlist(&id))
+        .and_then(|result| result.map_err(|error| error.to_string()))
+}
 #[derive(Serialize)]
 pub struct LyricView {
     #[serde(rename = "timeMs")]

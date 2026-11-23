@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from "react";
 import {
     commands,
+    listenLibrary,
     listenNotice,
     listenPosition,
     listenState,
     type AppInfo,
+    type LibraryState,
     type Notice,
     type Platform,
     type PlayerState,
@@ -14,10 +16,12 @@ import {
 type Unlisten = () => void;
 export type PlayerStoreDeps = {
     getState: () => Promise<PlayerState>;
+    getLibrary: () => Promise<LibraryState>;
     appInfo: () => Promise<AppInfo>;
     listenState: (handler: (state: PlayerState) => void) => Promise<Unlisten>;
     listenPosition: (handler: (position: Position) => void) => Promise<Unlisten>;
     listenNotice: (handler: (notice: Notice) => void) => Promise<Unlisten>;
+    listenLibrary: (handler: (library: LibraryState) => void) => Promise<Unlisten>;
 };
 export type FrameClock = {
     now: () => number;
@@ -26,6 +30,7 @@ export type FrameClock = {
 };
 export type PlayerSnapshot = {
     state: PlayerState | null;
+    library: LibraryState | null;
     platform: Platform | null;
     notice: Notice | null;
     error: string | null;
@@ -33,10 +38,12 @@ export type PlayerSnapshot = {
 
 const defaultDeps: PlayerStoreDeps = {
     getState: commands.getState,
+    getLibrary: commands.getLibrary,
     appInfo: commands.appInfo,
     listenState,
     listenPosition,
     listenNotice,
+    listenLibrary,
 };
 const defaultClock: FrameClock = {
     now: () => performance.now(),
@@ -46,7 +53,7 @@ const defaultClock: FrameClock = {
 
 /** Rust 状态的只读投影，进度插值不改变播放状态。 */
 export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: FrameClock = defaultClock) {
-    let snapshot: PlayerSnapshot = { state: null, platform: null, notice: null, error: null };
+    let snapshot: PlayerSnapshot = { state: null, library: null, platform: null, notice: null, error: null };
     const listeners = new Set<() => void>();
     // 进度按帧插值，只通知订阅进度的组件；整棵界面只在真实状态变化时重渲染
     const positionListeners = new Set<() => void>();
@@ -54,6 +61,7 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
     let active = false;
     let generation = 0;
     let stateRevision = 0;
+    let libraryRevision = 0;
     let unlisten: Unlisten[] = [];
     let starting: Promise<void> | null = null;
     let frame: number | null = null;
@@ -94,6 +102,10 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
         publishPosition(state.positionMs);
         schedule();
     };
+    const receiveLibrary = (library: LibraryState) => {
+        libraryRevision++;
+        publish({ library });
+    };
     const receivePosition = ({ ms }: Position) => {
         const state = snapshot.state;
         if (!state?.playing) return;
@@ -115,11 +127,12 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
         if (!active) return;
         const current = generation;
         const revision = stateRevision;
+        const librarySeen = libraryRevision;
         try {
-            const state = await deps.getState();
-            if (active && current === generation && revision === stateRevision) {
-                receiveState(state);
-            }
+            const [state, library] = await Promise.all([deps.getState(), deps.getLibrary()]);
+            if (!active || current !== generation) return;
+            if (revision === stateRevision) receiveState(state);
+            if (librarySeen === libraryRevision) receiveLibrary(library);
         } catch {
             // 保留上个快照，后续的播放操作仍会通过命令报告错误。
         }
@@ -144,6 +157,10 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
                         deps.listenNotice(value => {
                             if (active && generation === current) publish({ notice: value });
                         }),
+                    () =>
+                        deps.listenLibrary(value => {
+                            if (active && generation === current) receiveLibrary(value);
+                        }),
                 ];
                 for (const subscribe of subscriptions) {
                     const dispose = await subscribe();
@@ -154,9 +171,11 @@ export function createPlayerStore(deps: PlayerStoreDeps = defaultDeps, clock: Fr
                     unlisten.push(dispose);
                 }
                 const revision = stateRevision;
-                const [state, app] = await Promise.all([deps.getState(), deps.appInfo()]);
+                const librarySeen = libraryRevision;
+                const [state, app, library] = await Promise.all([deps.getState(), deps.appInfo(), deps.getLibrary()]);
                 if (!active || generation !== current) return;
                 if (stateRevision === revision) receiveState(state);
+                if (libraryRevision === librarySeen) receiveLibrary(library);
                 publish({ platform: app.platform });
             } catch (error) {
                 if (active && generation === current) {
@@ -203,4 +222,9 @@ export function usePlaybackPosition(): number {
 export function usePlatform(): Platform | null {
     const platform = () => playerStore.getSnapshot().platform;
     return useSyncExternalStore(playerStore.subscribe, platform, platform);
+}
+/** 曲库和自建歌单；由 library 事件更新，不随播放进度重渲染。 */
+export function useLibrary(): LibraryState | null {
+    const library = () => playerStore.getSnapshot().library;
+    return useSyncExternalStore(playerStore.subscribe, library, library);
 }

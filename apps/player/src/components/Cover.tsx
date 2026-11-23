@@ -28,9 +28,11 @@ export type CoverProps = {
     revision?: string | number;
     size?: number;
     className?: string;
+    /** 字封的固定配色 [底色, 字色]（如内置的「全部音乐」）；不传时按 id 取色。 */
+    colors?: readonly [string, string];
 };
 
-export function Cover({ id, title, coverUrl, revision, size = 40, className = "" }: CoverProps) {
+export function Cover({ id, title, coverUrl, revision, size = 40, className = "", colors }: CoverProps) {
     return (
         <CoverContent
             key={JSON.stringify([id, coverUrl, revision])}
@@ -40,13 +42,14 @@ export function Cover({ id, title, coverUrl, revision, size = 40, className = ""
             revision={revision}
             size={size}
             className={className}
+            colors={colors}
         />
     );
 }
 
-function CoverContent({ id, title, coverUrl, revision, size = 40, className = "" }: CoverProps) {
+function CoverContent({ id, title, coverUrl, revision, size = 40, className = "", colors }: CoverProps) {
     const [failed, setFailed] = useState(false);
-    const [background, foreground] = colorFor(id);
+    const [background, foreground] = colors ?? colorFor(id);
     const style = { "--s": `${size}px`, "--bg": background, "--fg": foreground } as CSSProperties;
     const classes = `cover ${className}`.trim();
     if (coverUrl && !failed) {
@@ -64,6 +67,9 @@ function CoverContent({ id, title, coverUrl, revision, size = 40, className = ""
                 src={source}
                 alt=""
                 crossOrigin="anonymous"
+                // 长列表里只加载滚动到附近的封面：每张都要外壳打开音频文件读取内嵌图片
+                loading="lazy"
+                decoding="async"
                 onError={() => setFailed(true)}
             />
         );

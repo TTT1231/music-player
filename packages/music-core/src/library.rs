@@ -37,7 +37,7 @@ impl FileRef {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrackId(pub String);
 
-/// 播放列表中的一首歌，保存音频和歌词位置。
+/// 曲库中的一首歌，保存音频和歌词位置。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: TrackId,
@@ -104,13 +104,14 @@ pub fn scan_dir(dir: &Path) -> io::Result<Vec<FileRef>> {
     Ok(paths.iter().map(|p| FileRef::from_path(p)).collect())
 }
 
-/// 有顺序的播放列表；上一首、下一首按这里的顺序走。
+/// 曲库：全部歌曲及其文件，按导入顺序排列，就是界面上的「全部音乐」。
+/// 播放顺序不在这里：播放列表和自建歌单都只是引用曲库中的歌曲。
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Playlist {
+pub struct Library {
     tracks: Vec<Track>,
 }
 
-impl Playlist {
+impl Library {
     pub fn new() -> Self {
         Self::default()
     }
@@ -209,18 +210,9 @@ impl Playlist {
         report
     }
 
-    /// 移出列表，不触碰磁盘上的文件。
+    /// 移出曲库，不触碰磁盘上的文件。
     pub fn remove(&mut self, id: &TrackId) -> Option<Track> {
         let pos = self.position(id)?;
         Some(self.tracks.remove(pos))
-    }
-
-    /// 把 `from` 位置的歌曲移到 `to` 位置；越界时不做任何事。
-    pub fn move_track(&mut self, from: usize, to: usize) {
-        if from >= self.tracks.len() || to >= self.tracks.len() || from == to {
-            return;
-        }
-        let track = self.tracks.remove(from);
-        self.tracks.insert(to, track);
     }
 }

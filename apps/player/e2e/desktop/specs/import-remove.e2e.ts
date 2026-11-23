@@ -35,6 +35,7 @@ describe("从队列和曲库移除", () => {
         await browser.waitUntil(async () => (await queueRows()).length === 3);
         expect(existsSync(audio)).toBe(true);
         expect(existsSync(lyrics)).toBe(true);
+        await expect(browser.$(".player-toast--desktop")).toHaveText("已从播放队列移除，歌单中的歌曲仍保留。");
         await (await browser.$('[aria-label="展开歌单"]')).click();
         const remove = await browser.$('[aria-label="从曲库移除 Track Two"]');
         await remove.click();

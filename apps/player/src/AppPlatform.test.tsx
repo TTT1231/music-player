@@ -13,6 +13,7 @@ vi.mock("./store", () => ({
     playerStore: { start: store.start, stop: store.stop, refresh: store.refresh },
     usePlatform: () => store.platform,
     usePlayerState: () => ({ state: null, notice: null, error: null, platform: store.platform }),
+    useLibrary: () => null,
     usePlaybackPosition: () => 0,
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: store.windowLabel }) }));

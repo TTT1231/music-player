@@ -1,121 +1,174 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Cover } from "../components/Cover";
-import { LiveFill, LiveLyrics, LiveProgressBar, LiveTime } from "../components/Live";
-import { type LyricLine } from "../components/LyricView";
-import { MODES } from "../components/ModeMenu";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NameDialog } from "../components/NameDialog";
 import { RemoveTrackDialog } from "../components/RemoveTrackDialog";
 import { Toast } from "../components/Toast";
-import { TunePanel } from "../components/TunePanel";
-import { formatTime } from "../components/formatTime";
-import { importSummary } from "../components/importSummary";
-import {
-    commands,
-    listenPlaybackEvents,
-    onBackButton,
-    type ImportResult,
-    type PlaybackEvent,
-    type TrackView,
-} from "../ipc";
-import { usePlayerState } from "../store";
-import { Snow } from "./Snow";
+import { commands, listenPlaybackEvents, onBackButton, type PlaybackEvent, type TrackView } from "../ipc";
+import { useLibrary, usePlayerState } from "../store";
+import { AddSongsPage } from "./android/AddSongsPage";
+import { HomePage } from "./android/HomePage";
+import { ImportPage } from "./android/ImportPage";
+import { MiniPlayer } from "./android/MiniPlayer";
+import { PlaylistPage } from "./android/PlaylistPage";
+import { PlayerPage, type PlayerSheet } from "./android/PlayerPage";
+import { ALL_MUSIC, Icon, PAGE_MS, icons } from "./android/shared";
 import "./android.css";
 
-type View = "list" | "player" | "import";
-type Sheet = "tune" | "list" | null;
+type Page =
+    | { kind: "home" }
+    | { kind: "playlist"; id: string }
+    | { kind: "add"; id: string }
+    | { kind: "import" }
+    | { kind: "player" };
+type Entry = { key: number; page: Page; leaving: boolean };
+type Sheet = PlayerSheet | "playlist-menu" | null;
+type Dialog =
+    | { type: "new-playlist" }
+    | { type: "rename-playlist"; id: string }
+    | { type: "delete-playlist"; id: string }
+    | { type: "remove-track"; track: TrackView }
+    | null;
+type ToastState = { message: string; done: boolean; key: number };
 
-function Icon({ path }: { path: string }) {
-    return (
-        <svg className="m-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d={path} />
-        </svg>
-    );
-}
+const NO_TRACKS: TrackView[] = [];
+const NO_FLASH: ReadonlySet<string> = new Set();
 
-const icons = {
-    play: "M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z",
-    pause: "M6 5h4v14H6zM14 5h4v14h-4z",
-    prev: "M5 5h2.2v14H5zM20 6.2v11.6a.8.8 0 0 1-1.2.7L10 12.7a.8.8 0 0 1 0-1.4l8.8-5.8a.8.8 0 0 1 1.2.7z",
-    next: "M16.8 5H19v14h-2.2zM4 6.2v11.6a.8.8 0 0 0 1.2.7L14 12.7a.8.8 0 0 0 0-1.4L5.2 5.5A.8.8 0 0 0 4 6.2z",
-    close: "M6 6l12 12M18 6 6 18",
-    down: "M5 9l7 7 7-7",
-    // 竖排两点“⋮”
-    dots: "M12 7.5h.01M12 16.5h.01",
-    queue: "M4 6h16M4 11h16M4 16h8M15.5 14l5 3-5 3z",
-    plus: "M12 5v14M5 12h14",
-    back: "M19 12H5M12 19l-7-7 7-7",
-    // 音符的两个圆头用两段弧画出：Icon 只画一个 path
-    note: "M9 18V6l11-2v12M4 18a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M15 16a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0",
-    folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
-    search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.35-4.35",
-    check: "M4 12l5 5L20 6",
-};
+const samePage = (a: Page, b: Page) => a.kind === b.kind && ("id" in a && "id" in b ? a.id === b.id : true);
+/** 栈顶：最后一个没有在退出的页面。 */
+const topOf = (entries: Entry[]) => entries.reduce<Entry>((top, entry) => (entry.leaving ? top : entry), entries[0]);
 
-/** 安卓布局：首页即播放列表、播放页（模糊封面 + 飘雪 + 歌词）、导入页。 */
+/**
+ * 安卓布局：页面栈（首页歌单列表 → 歌单 → 选歌或导入 → 播放页）、底部弹层和对话框。
+ * 首页的「全部音乐」就是曲库；从歌单点播时播放列表整份换成这个歌单的顺序。
+ */
 export function AndroidLayout() {
     const { state, notice, error } = usePlayerState();
-    const [view, setView] = useState<View>("list");
+    const library = useLibrary();
+    const [stack, setStack] = useState<Entry[]>(() => [{ key: 0, page: { kind: "home" }, leaving: false }]);
+    // 搜索词按页面保存：系统返回键先清空它，再退出页面
+    const [queries, setQueries] = useState<Record<number, string>>({});
     const [sheet, setSheet] = useState<Sheet>(null);
-    const [query, setQuery] = useState("");
-    const [lines, setLines] = useState<LyricLine[] | null>(null);
-    const [preview, setPreview] = useState<number | null>(null);
-    const [toast, setToast] = useState<{ message: string; icon?: ReactNode; key: number } | null>(null);
-    const [importResult, setImportResult] = useState<ImportResult | null>(null);
-    const [importBusy, setImportBusy] = useState(false);
+    const [dialog, setDialog] = useState<Dialog>(null);
+    const [flash, setFlash] = useState<ReadonlySet<string>>(NO_FLASH);
     const [locate, setLocate] = useState<string | null>(null);
-    const [removalId, setRemovalId] = useState<string | null>(null);
-    useEffect(() => {
-        if (view !== "list" || !locate) return;
-        const row = document.querySelector<HTMLElement>(`.m-row[data-id="${CSS.escape(locate)}"]`);
-        if (typeof row?.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
-        setLocate(null);
-    }, [view, locate]);
-    const toastKey = useRef(0);
+    const [toast, setToast] = useState<ToastState | null>(null);
+    const nextKey = useRef(1);
+    const leaveTimers = useRef(new Map<number, number>());
 
-    const playing = state?.playing ?? false;
-    const current = state?.tracks.find((track: TrackView) => track.id === state.currentId);
-    const pendingRemoval = state?.tracks.find(track => track.id === removalId);
-    const mode = MODES.find(item => item.id === state?.mode) ?? MODES[1];
-    const q = query.trim().toLowerCase();
-    const visible = (state?.tracks ?? []).filter(
-        track => !q || `${track.title}${track.artist}`.toLowerCase().includes(q),
+    const top = topOf(stack);
+    const topKey = top.key;
+    const currentId = state?.currentId ?? null;
+    const current = state?.tracks.find(track => track.id === state.currentId);
+    const byId = useMemo(
+        () => new Map((library?.tracks ?? NO_TRACKS).map(track => [track.id, track] as const)),
+        [library],
     );
-    const imported = Boolean(importResult && (importResult.added.length || importResult.lyricsAttached));
-    const rateChanged = Math.abs((state?.rate ?? 1) - 1) > 0.01;
+    const describe = useCallback(
+        (id: string) => {
+            if (id === ALL_MUSIC.id) {
+                return { name: ALL_MUSIC.name, builtIn: true, members: library?.tracks ?? NO_TRACKS };
+            }
+            const playlist = library?.playlists.find(item => item.id === id);
+            return {
+                name: playlist?.name ?? "",
+                builtIn: false,
+                members: (playlist?.trackIds ?? []).flatMap(trackId => byId.get(trackId) ?? []),
+            };
+        },
+        [library, byId],
+    );
+    const lists = [
+        { id: ALL_MUSIC.id, name: ALL_MUSIC.name, count: library?.tracks.length ?? 0, builtIn: true },
+        ...(library?.playlists ?? []).map(playlist => ({
+            id: playlist.id,
+            name: playlist.name,
+            count: playlist.trackIds.length,
+        })),
+    ];
 
-    const showToast = (message: string, icon?: ReactNode) => {
+    const toastKey = useRef(0);
+    const showToast = useCallback((message: string, done = false) => {
         toastKey.current += 1;
-        setToast({ message, icon, key: toastKey.current });
-    };
-    const run = (promise: Promise<unknown>) => {
-        void promise.catch(reason => showToast(String(reason)));
-    };
+        setToast({ message, done, key: toastKey.current });
+    }, []);
+    const run = useCallback(
+        (promise: Promise<unknown>) => {
+            void promise.catch(reason => showToast(String(reason)));
+        },
+        [showToast],
+    );
+
+    // 页面栈：同一页已在栈里时提到最上面，否则叠上去
+    const push = useCallback((page: Page) => {
+        const key = nextKey.current++;
+        setStack(previous => {
+            const existing = previous.find(entry => samePage(entry.page, page));
+            return existing
+                ? [...previous.filter(entry => entry !== existing), { ...existing, leaving: false }]
+                : [...previous, { key, page, leaving: false }];
+        });
+    }, []);
+    const pop = useCallback(() => {
+        setStack(previous =>
+            previous.map(entry =>
+                entry === topOf(previous) && entry !== previous[0] ? { ...entry, leaving: true } : entry,
+            ),
+        );
+    }, []);
+    // 退出的页面滑出动画结束后移除；中途又被推回栈顶则取消
+    useEffect(() => {
+        const timers = leaveTimers.current;
+        for (const entry of stack) {
+            const timer = timers.get(entry.key);
+            if (!entry.leaving) {
+                if (timer !== undefined) {
+                    clearTimeout(timer);
+                    timers.delete(entry.key);
+                }
+            } else if (timer === undefined) {
+                timers.set(
+                    entry.key,
+                    window.setTimeout(() => {
+                        timers.delete(entry.key);
+                        setStack(previous => previous.filter(item => item.key !== entry.key));
+                        setQueries(previous => {
+                            if (!(entry.key in previous)) return previous;
+                            const next = { ...previous };
+                            delete next[entry.key];
+                            return next;
+                        });
+                    }, PAGE_MS + 20),
+                );
+            }
+        }
+    }, [stack]);
+    useEffect(() => {
+        const timers = leaveTimers.current;
+        return () => {
+            for (const timer of timers.values()) clearTimeout(timer);
+            timers.clear();
+        };
+    }, []);
+    // 弹层只属于打开它的那一页：栈顶变了就收起
+    useEffect(() => {
+        setSheet(null);
+    }, [topKey]);
+    // 播放列表被清空时没有可播放的歌：退出播放页
+    const playerOnTop = top.page.kind === "player";
+    useEffect(() => {
+        if (playerOnTop && state && !currentId) pop();
+    }, [playerOnTop, state, currentId, pop]);
 
     useEffect(() => {
-        let live = true;
-        setLines(null);
-        if (current?.hasLyrics) {
-            void commands
-                .getLyrics(current.id)
-                .then(value => {
-                    if (live) setLines(value.lines);
-                })
-                .catch(() => {
-                    if (live) setLines([]);
-                });
-        }
-        return () => {
-            live = false;
-        };
-    }, [current?.id, current?.hasLyrics]);
+        if (!flash.size) return;
+        const timer = window.setTimeout(() => setFlash(NO_FLASH), 2400);
+        return () => clearTimeout(timer);
+    }, [flash]);
 
-    // 切换播放模式时在屏幕中间偏下显示深色轻提示
-    const cycleMode = () => {
-        if (!state) return;
-        const ids = MODES.map(m => m.id);
-        const next = ids[(ids.indexOf(state.mode) + 1) % ids.length];
-        const label = MODES.find(m => m.id === next)?.label ?? "";
-        run(commands.setMode(next).then(() => showToast(label)));
-    };
+    const setQuery = useCallback((key: number, value: string) => {
+        setQueries(previous => (previous[key] === value ? previous : { ...previous, [key]: value }));
+    }, []);
+    const closeDialog = useCallback(() => setDialog(null), []);
 
     // 原生事件：焦点/耳机拔出 → 暂停；通知栏按钮 → 外壳命令
     useEffect(() => {
@@ -143,16 +196,16 @@ export function AndroidLayout() {
             live = false;
             unlisten?.();
         };
-    }, []);
+    }, [run]);
 
-    // 系统返回键在应用内逐级返回：关弹层 → 回列表 → 清空搜索 → 退到后台（不关闭应用，音乐继续）
+    // 系统返回键逐级返回：对话框 → 弹层 → 清空搜索 → 上一页 → 退到后台（不关闭应用，音乐继续）
     const back = useRef(() => {});
     back.current = () => {
-        if (pendingRemoval) setRemovalId(null);
-        else if (sheet) setSheet(null);
-        else if (view !== "list") setView("list");
-        else if (query) setQuery("");
-        else run(commands.moveToBackground());
+        if (dialog) return setDialog(null);
+        if (sheet) return setSheet(null);
+        if (topKey >= 0 && queries[topKey]) return setQuery(topKey, "");
+        if (stack.some(entry => !entry.leaving && entry !== stack[0])) return pop();
+        run(commands.moveToBackground());
     };
     useEffect(() => {
         let live = true;
@@ -170,6 +223,7 @@ export function AndroidLayout() {
     }, []);
 
     // 通知栏/锁屏卡片同步：state 只在播放、暂停、跳转、换歌等真实变化时更新，进度由系统按倍速推算
+    const playing = state?.playing ?? false;
     useEffect(() => {
         if (!current || !state) return;
         run(
@@ -182,385 +236,246 @@ export function AndroidLayout() {
                 rate: state.rate,
             }),
         );
-    }, [current, playing, state?.positionMs, state?.durationMs, state?.rate]);
+    }, [current, playing, state?.positionMs, state?.durationMs, state?.rate, run]);
 
     useEffect(() => {
-        if (notice) showToast(`无法读取 ${notice.title}，已跳过`, <Icon path={icons.check} />);
-    }, [notice]);
+        if (notice) showToast(`无法读取 ${notice.title}，已跳过`, true);
+    }, [notice, showToast]);
     useEffect(() => {
         if (error) showToast(error);
-    }, [error]);
+    }, [error, showToast]);
 
-    // 选择与导入都在外壳完成：系统文件选择器提供文件名，歌名和歌词配对才正确；取消时返回 null
-    const importWith = async (kind: "files" | "folder") => {
-        setImportBusy(true);
+    /** 对话框提交：失败时提示原因，对话框保持打开 */
+    const submit = async (action: () => Promise<void>) => {
         try {
-            const result = await commands.pickAndImport(kind);
-            if (result) setImportResult(result);
+            await action();
         } catch (reason) {
             showToast(String(reason));
-        } finally {
-            setImportBusy(false);
         }
     };
-    // 去听歌：回到播放列表并滚到第一首导入的歌，不自动播放
-    const goListen = () => {
-        setLocate(importResult?.added[0] ?? null);
-        setImportResult(null);
-        setView("list");
+    const playFrom = (playlistId: string | null, filteredIds: string[] | null, start: string) => {
+        // 点的还是正在听的那首：不重新开始，暂停着就继续播
+        if (start === currentId) {
+            if (state && !state.playing) run(commands.play());
+        } else {
+            run(filteredIds ? commands.playFrom(filteredIds, start) : commands.playPlaylist(playlistId, start));
+        }
+        push({ kind: "player" });
     };
+    const openPlayer = () => push({ kind: "player" });
+    const clearLocate = useCallback(() => setLocate(null), []);
+
+    let dialogElement = null;
+    if (dialog?.type === "new-playlist") {
+        dialogElement = (
+            <NameDialog
+                title="新建歌单"
+                okLabel="创建"
+                onCancel={closeDialog}
+                onSubmit={value =>
+                    submit(async () => {
+                        const id = await commands.createPlaylist(value);
+                        closeDialog();
+                        push({ kind: "playlist", id });
+                    })
+                }
+            />
+        );
+    } else if (dialog?.type === "rename-playlist") {
+        const { id } = dialog;
+        dialogElement = (
+            <NameDialog
+                key={id}
+                title="重命名歌单"
+                value={describe(id).name}
+                okLabel="保存"
+                onCancel={closeDialog}
+                onSubmit={value =>
+                    submit(async () => {
+                        await commands.renamePlaylist(id, value);
+                        closeDialog();
+                    })
+                }
+            />
+        );
+    } else if (dialog?.type === "delete-playlist") {
+        const { id } = dialog;
+        const name = describe(id).name;
+        dialogElement = (
+            <ConfirmDialog
+                title="删除歌单"
+                okLabel="删除"
+                onCancel={closeDialog}
+                description={`确定删除「${name}」？歌单里的音乐不会被删除，仍保留在「${ALL_MUSIC.name}」。`}
+                onConfirm={() =>
+                    submit(async () => {
+                        await commands.deletePlaylist(id);
+                        closeDialog();
+                        pop();
+                        showToast(`已删除歌单「${name}」`, true);
+                    })
+                }
+            />
+        );
+    } else if (dialog?.type === "remove-track") {
+        const { track } = dialog;
+        dialogElement = (
+            <RemoveTrackDialog
+                track={track}
+                list={ALL_MUSIC.name}
+                onBackdropClick={closeDialog}
+                onCancel={closeDialog}
+                onConfirm={() => {
+                    closeDialog();
+                    run(commands.removeTrack(track.id).then(() => showToast("已从曲库移除", true)));
+                }}
+            />
+        );
+    }
+
+    const mini =
+        current && state ? (
+            <MiniPlayer
+                current={current}
+                playing={playing}
+                durationMs={state.durationMs}
+                onOpen={openPlayer}
+                onToggle={() => run(commands.toggle())}
+                onNext={() => run(commands.next())}
+            />
+        ) : null;
 
     return (
-        <main data-platform="android" className={`android${view === "player" ? " android--player" : ""}`}>
-            {view === "list" && (
-                <>
-                    <div className="lib-top">
-                        <label className="m-search">
-                            <Icon path={icons.search} />
-                            <input
-                                placeholder="搜索歌名或歌手"
-                                aria-label="搜索歌名或歌手"
-                                value={query}
-                                onChange={event => setQuery(event.target.value)}
+        <main data-platform="android" className="android">
+            {stack.map((entry, index) => {
+                const position = {
+                    level: index,
+                    active: entry.key === topKey,
+                    leaving: entry.leaving,
+                };
+                const page = entry.page;
+                switch (page.kind) {
+                    case "home":
+                        return (
+                            <HomePage
+                                key={entry.key}
+                                {...position}
+                                lists={lists}
+                                onOpen={id => push({ kind: "playlist", id })}
+                                onCreate={() => setDialog({ type: "new-playlist" })}
+                                mini={mini}
                             />
-                        </label>
-                        <button
-                            type="button"
-                            className="top-btn"
-                            aria-label="导入音乐和歌词"
-                            title="导入音乐和歌词"
-                            onClick={() => {
-                                setImportResult(null);
-                                setView("import");
-                            }}
-                        >
-                            <Icon path={icons.plus} />
-                        </button>
-                    </div>
-                    <div className="m-list" role="list">
-                        {visible.length === 0 ? (
-                            <p className="m-empty">
-                                {(state?.tracks ?? []).length
-                                    ? "没有找到匹配的歌曲。"
-                                    : "播放列表是空的。点右上角 + 导入音乐和歌词。"}
-                            </p>
-                        ) : (
-                            visible.map(track => {
-                                const on = track.id === state?.currentId;
-                                return (
-                                    <div
-                                        key={track.id}
-                                        role="listitem"
-                                        data-id={track.id}
-                                        className={`m-row${on ? " on" : ""}`}
-                                    >
-                                        <button
-                                            type="button"
-                                            className="m-play"
-                                            onClick={() => {
-                                                run(commands.playTrack(track.id));
-                                                setView("player");
-                                            }}
-                                        >
-                                            <span className="cv">
-                                                <Cover
-                                                    id={track.id}
-                                                    title={track.title}
-                                                    coverUrl={track.coverUrl}
-                                                    size={46}
-                                                />
-                                                {on && (
-                                                    <span className="eq" aria-hidden="true">
-                                                        <i />
-                                                        <i />
-                                                        <i />
-                                                        <i />
-                                                    </span>
-                                                )}
-                                            </span>
-                                            <span className="tx">
-                                                <span className="t">{track.title}</span>
-                                                <span className="a">
-                                                    {!track.hasLyrics && <span className="m-tag">纯音乐</span>}
-                                                    <span>{track.artist}</span>
-                                                </span>
-                                            </span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="m-del"
-                                            aria-label={`从播放列表移除：${track.title}`}
-                                            title="从播放列表移除"
-                                            onClick={() => setRemovalId(track.id)}
-                                        >
-                                            <Icon path={icons.close} />
-                                        </button>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
-                    <div className="mini">
-                        {current && (
-                            <Cover id={current.id} title={current.title} coverUrl={current.coverUrl} size={42} />
-                        )}
-                        <button type="button" className="tx" onClick={() => current && setView("player")}>
-                            <span className="t">{current?.title ?? "还没有播放"}</span>
-                            <span className="a">{current?.artist ?? "点一首歌开始"}</span>
-                        </button>
-                        <button
-                            type="button"
-                            className="mini-btn"
-                            aria-label={playing ? "暂停" : "播放"}
-                            onClick={() => current && run(commands.toggle())}
-                        >
-                            <Icon path={playing ? icons.pause : icons.play} />
-                        </button>
-                        <button
-                            type="button"
-                            className="mini-btn"
-                            aria-label="下一首"
-                            onClick={() => current && run(commands.next())}
-                        >
-                            <Icon path={icons.next} />
-                        </button>
-                        <LiveFill className="p" preview={preview} durationMs={state?.durationMs ?? null} />
-                    </div>
-                    <Toast
-                        message={toast?.message ?? null}
-                        variant="mobile"
-                        icon={toast?.icon}
-                        id={toast?.key}
-                        onDismiss={() => setToast(null)}
-                    />
-                </>
-            )}
-
-            {view === "player" && (
-                <>
-                    {current?.coverUrl && (
-                        <div className="np-bg" style={{ backgroundImage: `url("${current.coverUrl}")` }} />
-                    )}
-                    <div className="np-shade" aria-hidden="true" />
-                    <Snow className="np-snow" />
-                    <div className="np-top">
-                        <button type="button" aria-label="收起" onClick={() => setView("list")}>
-                            <Icon path={icons.down} />
-                        </button>
-                        <i />
-                    </div>
-                    <div className="np-head">
-                        <h2 className="stage-title">{current?.title}</h2>
-                        <p className="stage-artist">{current?.artist}</p>
-                    </div>
-                    <div className="np-lyrics">
-                        <LiveLyrics lines={lines ?? []} preview={preview} onSeek={ms => run(commands.seek(ms))} />
-                        {lines !== null && lines.length === 0 && (
-                            <p className="ly is-active instrumental">纯音乐，请欣赏</p>
-                        )}
-                    </div>
-                    <div className="np-ctl">
-                        <div className="np-tools">
-                            <button
-                                type="button"
-                                className={`np-rate${rateChanged || (state?.pitch ?? 0) !== 0 ? " changed" : ""}`}
-                                aria-label="升降调和倍速"
-                                title="升降调和倍速"
-                                onClick={() => setSheet("tune")}
-                            >
-                                <Icon path={icons.dots} />
-                                <sup>{rateChanged ? `${state?.rate.toFixed(1)}X` : ""}</sup>
-                            </button>
-                        </div>
-                        <LiveProgressBar
-                            variant="mobile"
-                            durationMs={state?.durationMs ?? null}
-                            onPreviewChange={setPreview}
-                            onSeek={ms => run(commands.seek(ms))}
-                        />
-                        <div className="np-times">
-                            <span>
-                                <LiveTime preview={preview} />
-                            </span>
-                            <span>{formatTime(state?.durationMs)}</span>
-                        </div>
-                        <div className="np-btns">
-                            <button
-                                type="button"
-                                className="side"
-                                aria-label={`播放模式：${mode.label}`}
-                                onClick={cycleMode}
-                            >
-                                <Icon path={mode.path} />
-                            </button>
-                            <button type="button" aria-label="上一首" onClick={() => current && run(commands.prev())}>
-                                <Icon path={icons.prev} />
-                            </button>
-                            <button
-                                type="button"
-                                className="big"
-                                aria-label={playing ? "暂停" : "播放"}
-                                onClick={() =>
-                                    current
-                                        ? run(commands.toggle())
-                                        : visible[0] && run(commands.playTrack(visible[0].id))
-                                }
-                            >
-                                <Icon path={playing ? icons.pause : icons.play} />
-                            </button>
-                            <button type="button" aria-label="下一首" onClick={() => current && run(commands.next())}>
-                                <Icon path={icons.next} />
-                            </button>
-                            <button
-                                type="button"
-                                className="side"
-                                aria-label="播放列表"
-                                onClick={() => setSheet("list")}
-                            >
-                                <Icon path={icons.queue} />
-                            </button>
-                        </div>
-                    </div>
-                    {sheet && (
-                        <>
-                            <div className="scrim" data-testid="scrim" onClick={() => setSheet(null)} />
-                            {sheet === "tune" ? (
-                                <div className="sheet tune-sheet">
-                                    <div className="grab" />
-                                    <TunePanel
-                                        rate={state?.rate ?? 1}
-                                        pitch={state?.pitch ?? 0}
-                                        variant="mobile"
-                                        onRateChange={value => run(commands.setRate(value))}
-                                        onPitchChange={value => run(commands.setPitch(value))}
-                                    />
-                                </div>
-                            ) : (
-                                <div className="sheet list-sheet" role="dialog" aria-label="播放列表">
-                                    <div className="grab" />
-                                    <div className="ls-head">
-                                        <b>播放列表</b>
-                                        <span> ({(state?.tracks ?? []).length})</span>
-                                    </div>
-                                    <div className="ls-list">
-                                        {(state?.tracks ?? []).map(track => {
-                                            const on = track.id === state?.currentId;
-                                            return (
-                                                <div key={track.id} className={`ls-row${on ? " on" : ""}`}>
-                                                    <button
-                                                        type="button"
-                                                        className="ls-play"
-                                                        onClick={() => run(commands.playTrack(track.id))}
-                                                    >
-                                                        <span className="ls-cv">
-                                                            <Cover
-                                                                id={track.id}
-                                                                title={track.title}
-                                                                coverUrl={track.coverUrl}
-                                                                size={48}
-                                                            />
-                                                            {on && (
-                                                                <span className="ls-eq" aria-hidden="true">
-                                                                    <i />
-                                                                    <i />
-                                                                    <i />
-                                                                    <i />
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                        <span className="ls-tx">
-                                                            <span className="t">{track.title}</span>
-                                                            <span className="a">
-                                                                {!track.hasLyrics && (
-                                                                    <span className="m-tag">纯音乐</span>
-                                                                )}
-                                                                <span>{track.artist}</span>
-                                                            </span>
-                                                        </span>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="ls-del"
-                                                        aria-label={`从播放列表移除：${track.title}`}
-                                                        onClick={() => setRemovalId(track.id)}
-                                                    >
-                                                        <Icon path={icons.close} />
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
-                    <Toast
-                        message={toast?.message ?? null}
-                        variant="mobile"
-                        icon={toast?.icon}
-                        id={toast?.key}
-                        onDismiss={() => setToast(null)}
-                    />
-                </>
-            )}
-
-            {view === "import" && (
-                <>
-                    <div className="imp-top">
-                        <button type="button" className="top-btn" aria-label="返回" onClick={() => setView("list")}>
-                            <Icon path={icons.back} />
-                        </button>
-                    </div>
-                    <div className="imp">
-                        <div className="imp-hero" aria-hidden="true">
-                            <Icon path={icons.note} />
-                        </div>
-                        <h2>导入音乐</h2>
-                        <button
-                            type="button"
-                            className={`imp-btn${imported ? "" : " primary"}`}
-                            disabled={importBusy}
-                            onClick={() => void importWith("files")}
-                        >
-                            <Icon path={icons.note} />
-                            选择歌曲
-                        </button>
-                        <button
-                            type="button"
-                            className="imp-btn"
-                            disabled={importBusy}
-                            onClick={() => void importWith("folder")}
-                        >
-                            <Icon path={icons.folder} />
-                            导入整个文件夹
-                        </button>
-                        {importResult && (
-                            <div className="imp-done" role="status">
-                                <p>{importSummary(importResult)}</p>
-                                {imported && (
-                                    <button type="button" className="imp-btn primary" onClick={goListen}>
-                                        去听歌
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </>
-            )}
-            {pendingRemoval && (
-                <RemoveTrackDialog
-                    track={pendingRemoval}
-                    onCancel={() => setRemovalId(null)}
-                    onConfirm={() => {
-                        setRemovalId(null);
-                        run(
-                            commands.removeTrack(pendingRemoval.id).then(() => {
-                                showToast("已从播放列表移除", <Icon path={icons.check} />);
-                            }),
                         );
-                    }}
-                />
-            )}
+                    case "playlist": {
+                        const info = describe(page.id);
+                        const query = queries[entry.key] ?? "";
+                        return (
+                            <PlaylistPage
+                                key={entry.key}
+                                {...position}
+                                id={page.id}
+                                name={info.name}
+                                builtIn={info.builtIn}
+                                members={info.members}
+                                currentId={currentId}
+                                query={query}
+                                onQueryChange={value => setQuery(entry.key, value)}
+                                flash={flash}
+                                locate={locate}
+                                onLocateDone={clearLocate}
+                                onPlay={(ids, start) =>
+                                    playFrom(info.builtIn ? null : page.id, query.trim() ? ids : null, start)
+                                }
+                                onBack={pop}
+                                onImport={() => push({ kind: "import" })}
+                                onAdd={() => push({ kind: "add", id: page.id })}
+                                onMenu={() => setSheet("playlist-menu")}
+                                onRename={() => setDialog({ type: "rename-playlist", id: page.id })}
+                                onDelete={() => setDialog({ type: "delete-playlist", id: page.id })}
+                                menuOpen={sheet === "playlist-menu"}
+                                onCloseMenu={() => setSheet(null)}
+                                onRemove={track => {
+                                    if (page.id === ALL_MUSIC.id) {
+                                        setDialog({ type: "remove-track", track });
+                                        return;
+                                    }
+                                    run(
+                                        commands
+                                            .removePlaylistTrack(page.id, track.id)
+                                            .then(() => showToast(`已从「${info.name}」移除`, true)),
+                                    );
+                                }}
+                                mini={mini}
+                            />
+                        );
+                    }
+                    case "add": {
+                        const info = describe(page.id);
+                        return (
+                            <AddSongsPage
+                                key={entry.key}
+                                {...position}
+                                playlistName={info.name}
+                                tracks={library?.tracks ?? NO_TRACKS}
+                                memberIds={new Set(info.members.map(track => track.id))}
+                                query={queries[entry.key] ?? ""}
+                                onQueryChange={value => setQuery(entry.key, value)}
+                                onBack={pop}
+                                onConfirm={ids =>
+                                    run(
+                                        commands.addPlaylistTracks(page.id, ids).then(added => {
+                                            showToast(`已添加 ${added} 首到「${info.name}」`, true);
+                                            pop();
+                                        }),
+                                    )
+                                }
+                            />
+                        );
+                    }
+                    case "import":
+                        return (
+                            <ImportPage
+                                key={entry.key}
+                                {...position}
+                                onBack={pop}
+                                showToast={showToast}
+                                onGoListen={added => {
+                                    // 回到歌单页并滚到第一首导入的歌，不自动播放
+                                    setFlash(new Set(added));
+                                    setLocate(added[0] ?? null);
+                                    pop();
+                                }}
+                            />
+                        );
+                    case "player":
+                        return state ? (
+                            <PlayerPage
+                                key={entry.key}
+                                {...position}
+                                state={state}
+                                sheet={sheet === "tune" || sheet === "queue" ? sheet : null}
+                                onSheetChange={setSheet}
+                                onQueueRemove={id =>
+                                    run(
+                                        commands
+                                            .removeQueueTrack(id)
+                                            .then(() => showToast("已从播放列表移除，歌单里仍保留", true)),
+                                    )
+                                }
+                                onBack={pop}
+                                showToast={showToast}
+                            />
+                        ) : null;
+                }
+            })}
+            {dialogElement}
+            <Toast
+                message={toast?.message ?? null}
+                variant="mobile"
+                icon={toast?.done ? <Icon path={icons.check} /> : undefined}
+                id={toast?.key}
+                onDismiss={() => setToast(null)}
+            />
         </main>
     );
 }

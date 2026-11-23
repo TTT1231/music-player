@@ -228,6 +228,12 @@
 }
 .player-toast--mobile {
     position: absolute;
+    /* 提示是 popover（见 Toast.tsx）：这里盖掉浏览器给 popover 的默认定位、外边距、边框和滚动 */
+    right: auto;
+    bottom: auto;
+    margin: 0;
+    border: 0;
+    overflow: visible;
     top: 62%;
     padding: 10px 18px;
     border-radius: 12px;

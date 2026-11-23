@@ -1,0 +1,76 @@
+/* 对话框共用的外观：移除歌曲、删除歌单、新建与重命名歌单。 */
+.app-dialog {
+    box-sizing: border-box;
+    width: min(360px, calc(100% - 32px));
+    padding: 0;
+    border: 0;
+    border-radius: 16px;
+    background: #fbfbfa;
+    color: #191918;
+    font:
+        15px/1.5 system-ui,
+        sans-serif;
+}
+.app-dialog::backdrop {
+    background: rgb(0 0 0 / 50%);
+}
+/* 填充放在内层：点到 <dialog> 自身就只会是点在遮罩上 */
+.app-dialog-inner {
+    padding: 20px;
+}
+.app-dialog h2 {
+    margin: 0;
+    font-size: 18px;
+}
+.app-dialog p {
+    margin: 10px 0 18px;
+    overflow-wrap: anywhere;
+}
+.app-dialog-input {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    height: 44px;
+    margin: 14px 0 20px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: #f0f1ef;
+    color: #191918;
+    font: inherit;
+    font-size: 15px;
+    outline: none;
+}
+.app-dialog-input:focus {
+    box-shadow: 0 0 0 2px rgba(36, 64, 184, 0.35);
+}
+.app-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.app-dialog-actions button {
+    min-height: 44px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 8px;
+    background: #e9e9e6;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.app-dialog-actions button:last-child {
+    background: #a32b2b;
+    color: white;
+}
+.app-dialog-actions button:last-child.is-primary {
+    background: #2440b8;
+}
+.app-dialog-actions button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+.app-dialog-actions button:focus-visible {
+    outline: 2px solid #2440b8;
+    outline-offset: 2px;
+}

@@ -5,12 +5,12 @@ mod common;
 
 use std::time::Duration;
 
-use common::{ids, playlist};
+use common::{ids, library};
 use music_core::{PITCH_RANGE, PlayMode, Player, RATE_RANGE, RESTART_THRESHOLD, Step, TrackId};
 
 /// 四首歌的播放器，正在播放第 `at` 首（从 0 开始）。
 fn playing_at(mode: PlayMode, at: usize) -> (Player, Vec<TrackId>) {
-    let list = playlist(&["a - 一", "a - 二", "a - 三", "a - 四"]);
+    let list = library(&["a - 一", "a - 二", "a - 三", "a - 四"]);
     let ids = ids(&list);
     let mut p = Player::new(list);
     p.set_mode(mode);
@@ -20,7 +20,7 @@ fn playing_at(mode: PlayMode, at: usize) -> (Player, Vec<TrackId>) {
 
 #[test]
 fn starts_paused_with_defaults() {
-    let p = Player::new(playlist(&["a - 一"]));
+    let p = Player::new(library(&["a - 一"]));
     assert_eq!(p.current(), None);
     assert!(!p.is_playing());
     assert_eq!(p.mode(), PlayMode::Loop);
@@ -69,7 +69,7 @@ fn prev_restarts_after_threshold_otherwise_goes_back_and_wraps() {
 
 #[test]
 fn next_and_prev_on_empty_list_do_nothing() {
-    let mut p = Player::new(playlist(&[]));
+    let mut p = Player::new(library(&[]));
     assert_eq!(p.next(), None);
     assert_eq!(p.prev(Duration::ZERO), None);
 }
@@ -109,7 +109,7 @@ fn shuffle_never_picks_current_track_twice_in_a_row() {
 
 #[test]
 fn shuffle_with_one_track_replays_it() {
-    let list = playlist(&["a - 唯一"]);
+    let list = library(&["a - 唯一"]);
     let id = ids(&list)[0].clone();
     let mut p = Player::new(list);
     p.set_mode(PlayMode::Shuffle);
@@ -149,7 +149,26 @@ fn removing_playing_track_continues_with_the_following_one() {
     assert_eq!(p.remove(&ids[1]), Some(Step::Play(ids[2].clone())));
     assert_eq!(p.current(), Some(&ids[2]));
     assert!(p.is_playing());
-    assert_eq!(p.playlist().len(), 3);
+    assert_eq!(p.queue().len(), 3);
+}
+
+#[test]
+fn move_track_changes_queue_order() {
+    let list = library(&["a - 一", "a - 二", "a - 三", "a - 四"]);
+    let ids = ids(&list);
+    let mut p = Player::new(list);
+    p.move_track(0, 2);
+    assert_eq!(
+        p.queue(),
+        [ids[1].clone(), ids[2].clone(), ids[0].clone(), ids[3].clone()]
+    );
+    p.move_track(3, 0);
+    assert_eq!(
+        p.queue(),
+        [ids[3].clone(), ids[1].clone(), ids[2].clone(), ids[0].clone()]
+    );
+    // 只调整播放列表，曲库仍是导入顺序
+    assert_eq!(common::ids(p.library()), ids);
 }
 
 #[test]
@@ -167,7 +186,7 @@ fn removing_other_track_keeps_current() {
 
 #[test]
 fn removing_only_track_stops() {
-    let list = playlist(&["a - 唯一"]);
+    let list = library(&["a - 唯一"]);
     let id = ids(&list)[0].clone();
     let mut p = Player::new(list);
     p.play_track(&id);
@@ -186,7 +205,7 @@ fn unreadable_track_skips_to_next_in_list_order() {
 
 #[test]
 fn unreadable_only_track_stops() {
-    let list = playlist(&["a - 唯一"]);
+    let list = library(&["a - 唯一"]);
     let id = ids(&list)[0].clone();
     let mut p = Player::new(list);
     p.play_track(&id);
@@ -196,7 +215,7 @@ fn unreadable_only_track_stops() {
 
 #[test]
 fn rate_is_clamped_and_rounded_to_one_decimal() {
-    let mut p = Player::new(playlist(&[]));
+    let mut p = Player::new(library(&[]));
     assert_eq!(p.set_rate(1.24), 1.2);
     assert_eq!(p.set_rate(9.0), *RATE_RANGE.end());
     assert_eq!(p.set_rate(0.1), *RATE_RANGE.start());
@@ -205,7 +224,7 @@ fn rate_is_clamped_and_rounded_to_one_decimal() {
 
 #[test]
 fn pitch_and_volume_are_clamped() {
-    let mut p = Player::new(playlist(&[]));
+    let mut p = Player::new(library(&[]));
     // 升降调 ±5 档，与倍速 0.5–1.5 每侧 5 档对应
     assert_eq!(PITCH_RANGE, -5..=5);
     assert_eq!(p.set_pitch(12), 5);

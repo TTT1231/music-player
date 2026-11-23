@@ -1,5 +1,8 @@
 use music_core::PlayMode;
-use music_player_shell_lib::controller::{AudioBackend, Controller, ControllerEvent, path_resolver};
+use music_player_shell_lib::controller::{
+    AudioBackend, Controller, ControllerEvent, PlatformBehavior, TrackView, path_resolver,
+};
+use music_player_shell_lib::library_files::LibraryFiles;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
 use std::time::Duration;
@@ -152,7 +155,7 @@ fn removing_current_switches_to_next_and_session_restores_paused() {
     let (mut controller, _) = setup(&session);
     let report = controller.import_paths(&paths()).unwrap();
     controller.play_track(&report.added[0]);
-    controller.remove_track(&report.added[0]);
+    controller.remove_queue_track(&report.added[0]);
     controller.set_mode(PlayMode::Single);
     controller.set_volume(0.4);
     assert_eq!(controller.state().current_id.as_deref(), Some(report.added[1].as_str()));
@@ -216,7 +219,7 @@ fn removing_paused_current_keeps_next_paused_and_save_is_debounced() {
     let report = controller.import_paths(&paths()).unwrap();
     controller.play_track(&report.added[0]);
     controller.pause();
-    controller.remove_track(&report.added[0]);
+    controller.remove_queue_track(&report.added[0]);
     assert_eq!(controller.state().current_id.as_deref(), Some(report.added[1].as_str()));
     assert!(!controller.state().playing);
     assert!(!backend.lock().unwrap().playing);
@@ -305,7 +308,7 @@ fn missing_output_device_keeps_selected_track_without_unreadable_notices() {
             .iter()
             .any(|e| matches!(e, ControllerEvent::Notice { .. }))
     );
-    controller.remove_track(&report.added[0]);
+    controller.remove_queue_track(&report.added[0]);
     assert_eq!(controller.state().current_id.as_deref(), Some(report.added[1].as_str()));
     assert!(!controller.state().playing);
     assert!(backend.lock().unwrap().loaded.is_empty());
@@ -438,13 +441,11 @@ fn playlist_commands_keep_library_queue_and_saved_selection_separate_after_resta
     let session = dir.path().join("session.json");
     let (mut controller, _) = setup(&session);
     let ids = controller.import_paths(&paths()).unwrap().added;
-    let list = controller.create_playlist("收藏".into()).unwrap();
+    let list = controller.create_playlist("收藏").unwrap();
     controller
-        .add_playlist_tracks(list.clone(), vec![ids[1].clone(), ids[0].clone()])
+        .add_playlist_tracks(&list, &[ids[1].clone(), ids[0].clone()])
         .unwrap();
-    controller
-        .play_playlist(Some(list.clone()), Some(ids[1].clone()))
-        .unwrap();
+    controller.play_playlist(Some(&list), Some(&ids[1])).unwrap();
     assert_eq!(controller.state().tracks.len(), 2);
     controller.remove_queue_track(&ids[1]);
     assert_eq!(controller.state().library.len(), 3);
@@ -455,4 +456,215 @@ fn playlist_commands_keep_library_queue_and_saved_selection_separate_after_resta
     assert_eq!(restored.state().tracks.len(), 1);
     assert_eq!(restored.state().library.len(), 3);
     assert_eq!(restored.state().playlists[0].track_ids.len(), 2);
+    assert_eq!(restored.state().queue_source.as_deref(), Some(list.as_str()));
+}
+
+/// 安卓：导入只进曲库，播放列表在用户从歌单点播时整份替换。
+fn android(session: &Path) -> (Controller<FakeBackend>, Arc<Mutex<BackendState>>) {
+    let (mut controller, backend) = setup(session);
+    controller.set_behavior(PlatformBehavior::android());
+    (controller, backend)
+}
+
+fn ids(tracks: &[TrackView]) -> Vec<&str> {
+    tracks.iter().map(|track| track.id.as_str()).collect()
+}
+
+#[test]
+fn desktop_imports_join_the_queue_and_only_playback_state_is_projected() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _) = setup(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    // 桌面沿用：导入的歌直接排进播放列表，界面只读播放状态
+    assert_eq!(ids(&controller.state().tracks), report.added);
+    assert_eq!(ids(&controller.library_state().tracks), report.added);
+    let events = controller.poll().unwrap();
+    assert!(events.contains(&ControllerEvent::StateChanged));
+    assert!(!events.contains(&ControllerEvent::LibraryChanged));
+}
+
+#[test]
+fn android_imports_only_reach_the_library_and_playing_from_a_list_replaces_the_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, backend) = android(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    assert_eq!(ids(&controller.library_state().tracks), report.added);
+    assert!(controller.state().tracks.is_empty(), "导入不进播放列表");
+    assert!(backend.lock().unwrap().loaded.is_empty());
+    let events = controller.poll().unwrap();
+    assert!(events.contains(&ControllerEvent::LibraryChanged));
+
+    // 从「全部音乐」点第二首：播放列表换成给出的顺序，从点中的歌开始
+    controller.set_mode(PlayMode::Order);
+    controller.play_playlist(None, Some(&report.added[1])).unwrap();
+    assert_eq!(controller.state().queue_source.as_deref(), Some("all"));
+    assert_eq!(ids(&controller.state().tracks), report.added);
+    assert_eq!(controller.state().current_id.as_deref(), Some(report.added[1].as_str()));
+    assert_eq!(backend.lock().unwrap().loaded, vec![paths()[1].clone()]);
+    controller.on_ended();
+    assert_eq!(controller.state().current_id.as_deref(), Some(report.added[2].as_str()));
+
+    // 起点不在给出的列表里：什么都不变
+    assert!(!controller.play_from(&report.added, "不存在"));
+    assert_eq!(controller.state().current_id.as_deref(), Some(report.added[2].as_str()));
+
+    // 之后导入的歌只进曲库，不插进正在用的播放列表
+    let extra = fixture("No Artist Instrumental.mp3");
+    let added = controller
+        .import_files(vec![music_core::FileRef::new(
+            extra.to_string_lossy().into_owned(),
+            "歌手 - 新歌.mp3",
+        )])
+        .added;
+    assert_eq!(added.len(), 1);
+    assert_eq!(controller.library_state().tracks.len(), 4);
+    assert_eq!(ids(&controller.state().tracks), report.added);
+}
+
+#[test]
+fn removing_from_the_queue_keeps_the_library_and_playlists() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _) = setup(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    let night = controller.create_playlist("夜跑").unwrap();
+    controller.add_playlist_tracks(&night, &report.added).unwrap();
+    controller.play_track(&report.added[0]);
+
+    controller.remove_queue_track(&report.added[0]);
+
+    // 只移出播放列表：接着播排在后面的歌；曲库、歌单和文件都不动
+    let state = controller.state();
+    assert_eq!(state.current_id.as_deref(), Some(report.added[1].as_str()));
+    assert_eq!(ids(&state.tracks), report.added[1..]);
+    assert_eq!(ids(&controller.library_state().tracks), report.added);
+    assert_eq!(controller.library_state().playlists[0].track_ids, report.added);
+    assert!(Path::new(&paths()[0]).exists());
+}
+
+#[test]
+fn removing_from_the_library_clears_the_queue_and_playlists() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _) = android(&dir.path().join("session.json"));
+    let report = controller.import_paths(&paths()).unwrap();
+    controller.play_from(&report.added, &report.added[1]);
+    let night = controller.create_playlist("夜跑").unwrap();
+    controller.add_playlist_tracks(&night, &report.added).unwrap();
+
+    controller
+        .remove_managed(&report.added[1], &LibraryFiles::new(dir.path().join("assets")))
+        .unwrap();
+
+    let state = controller.state();
+    assert_eq!(
+        state.current_id.as_deref(),
+        Some(report.added[2].as_str()),
+        "接着播列表里排在后面的歌"
+    );
+    let remaining = [report.added[0].as_str(), report.added[2].as_str()];
+    assert_eq!(ids(&state.tracks), remaining);
+    let library = controller.library_state();
+    assert_eq!(ids(&library.tracks), remaining);
+    assert_eq!(library.playlists[0].track_ids, remaining);
+    let events = controller.poll().unwrap();
+    assert!(events.contains(&ControllerEvent::StateChanged));
+    assert!(events.contains(&ControllerEvent::LibraryChanged));
+    // 这里的文件不在曲库目录里（相当于旧会话的外部文件），留在原处
+    assert!(Path::new(&paths()[1]).exists());
+}
+
+#[test]
+fn playlist_edits_are_projected_on_their_own_and_persisted() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.json");
+    let (mut controller, _) = android(&session);
+    let report = controller.import_paths(&paths()).unwrap();
+    controller.poll().unwrap();
+
+    let night = controller.create_playlist(" 夜跑 ").unwrap();
+    assert_eq!(controller.add_playlist_tracks(&night, &report.added[..2]).unwrap(), 2);
+    assert_eq!(
+        controller
+            .add_playlist_tracks(&night, &[report.added[0].clone(), "不存在".to_owned()])
+            .unwrap(),
+        0
+    );
+    let library = controller.library_state();
+    assert_eq!(library.playlists[0].id, night);
+    assert_eq!(library.playlists[0].name, "夜跑");
+    assert_eq!(library.playlists[0].track_ids, report.added[..2]);
+    // 歌单操作只投影曲库，不打扰播放状态
+    let events = controller.poll().unwrap();
+    assert!(!events.is_empty());
+    assert!(
+        events
+            .iter()
+            .all(|event| matches!(event, ControllerEvent::LibraryChanged))
+    );
+
+    // 重名和内置名称被拒绝，错误带能直接显示的文字
+    assert_eq!(
+        controller.create_playlist("夜跑").unwrap_err().to_string(),
+        "已经有同名的歌单了"
+    );
+    assert_eq!(
+        controller.create_playlist("全部音乐").unwrap_err().to_string(),
+        "「全部音乐」是内置歌单，请换一个名字"
+    );
+    assert!(controller.rename_playlist(&night, "全部音乐").is_err());
+    controller.rename_playlist(&night, " 深夜跑 ").unwrap();
+    assert_eq!(controller.library_state().playlists[0].name, "深夜跑");
+
+    controller.remove_playlist_track(&night, &report.added[1]).unwrap();
+    assert_eq!(controller.library_state().playlists[0].track_ids, report.added[..1]);
+    controller.save().unwrap();
+    drop(controller);
+
+    let (mut restored, _) = android(&session);
+    let library = restored.library_state();
+    assert_eq!(library.playlists.len(), 1);
+    assert_eq!(library.playlists[0].name, "深夜跑");
+    assert_eq!(library.playlists[0].track_ids, report.added[..1]);
+    assert_eq!(ids(&library.tracks), report.added);
+    assert!(restored.state().tracks.is_empty(), "空着的播放列表重启后仍是空的");
+
+    // 删除歌单不动曲库
+    restored.delete_playlist(&night).unwrap();
+    let library = restored.library_state();
+    assert!(library.playlists.is_empty());
+    assert_eq!(ids(&library.tracks), report.added);
+    assert_eq!(restored.delete_playlist(&night).unwrap_err().to_string(), "歌单不存在");
+}
+
+#[test]
+fn probed_durations_reach_the_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _) = android(&dir.path().join("session.json"));
+    controller.import_paths(&paths()).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut projected = false;
+    while controller
+        .library_state()
+        .tracks
+        .iter()
+        .any(|track| track.duration_ms.is_none())
+    {
+        assert!(std::time::Instant::now() < deadline, "时长没有探测出来");
+        std::thread::sleep(Duration::from_millis(50));
+        projected |= controller.poll().unwrap().contains(&ControllerEvent::LibraryChanged);
+    }
+    assert!(projected, "探测到时长后要重新投影曲库，列表里才显示时长");
+}
+
+#[test]
+fn loading_a_track_projects_its_duration_to_the_android_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut controller, _) = android(&dir.path().join("session.json"));
+    let file = music_core::FileRef::new("missing.ogg", "歌手 - 歌.ogg");
+    let report = controller.import_files(vec![file]);
+    controller.poll().unwrap();
+    assert_eq!(controller.library_state().tracks[0].duration_ms, None);
+
+    controller.play_playlist(None, Some(&report.added[0])).unwrap();
+    assert!(controller.library_state().tracks[0].duration_ms.is_some());
+    assert!(controller.poll().unwrap().contains(&ControllerEvent::LibraryChanged));
 }

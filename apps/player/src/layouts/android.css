@@ -1,18 +1,19 @@
-/* 安卓布局：首页播放列表、播放页、导入页和底部弹层；组件样式在各自文件。 */
+/* 安卓布局：首页歌单列表、歌单页、选歌页、导入页、播放页和底部弹层；组件样式在各自文件。 */
 :where(.android) {
     height: 100%;
-    display: flex;
-    flex-direction: column;
+    position: relative;
     background: #fbfbfa;
-    color: var(--ink, #1c2629);
+    color: var(--ink);
+    --ink: #1c2629;
+    --muted: #5b6764;
+    --cobalt: #2440b8;
+    --paper-2: #e3e8e1;
+    --moon: #d6e2ea;
+    --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
     --sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
     font-family: var(--sans);
     -webkit-tap-highlight-color: transparent;
-    position: relative;
-    /* 安卓 15 起应用全屏绘制到系统栏下：内容让开状态栏和导航栏，绝对定位的背景（模糊封面、雪花）仍铺满全屏 */
-    box-sizing: border-box;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* 安卓 15 起应用全屏绘制到系统栏下：页面铺满整屏（含系统栏区域），由各页的 .page-body 让开状态栏和导航栏 */
     /* clip 而不是 hidden：模糊封面背景超出屏幕，hidden 的容器仍可被焦点或脚本滚动，整页会错位 */
     overflow: hidden;
     overflow: clip;
@@ -42,12 +43,259 @@
     stroke-linejoin: round;
 }
 
-/* 首页顶部：搜索 + 导入 */
+/* 页面栈：每页铺满整屏，按栈序叠放；进入时的动画由 Page 组件用 Web Animations 播放 */
+.page {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    overflow: clip;
+    background: #fbfbfa;
+    transition: transform 0.34s cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+.page.is-leaving {
+    transform: translateX(100%);
+}
+/* 页面内容让开系统状态栏和导航栏；绝对定位的背景（模糊封面、雪花）是它的兄弟，仍铺满整页 */
+.page-body {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 首页：歌单列表 */
+.home-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 8px 20px;
+}
+.home-top h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+}
+.home-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+    padding: 2px 8px 8px;
+}
+.home-list::-webkit-scrollbar {
+    display: none;
+}
+.pl-row {
+    display: flex;
+    align-items: center;
+    border-radius: 12px;
+    transition: background 0.12s;
+}
+.pl-row + .pl-row {
+    margin-top: 2px;
+}
+.pl-row:active {
+    background: rgba(0, 0, 0, 0.04);
+}
+.pl-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 4px 8px 12px;
+}
+.pl-row .cover {
+    border-radius: 10px;
+}
+.pl-tx {
+    flex: 1;
+    min-width: 0;
+}
+.pl-tx .t {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pl-tx .a {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* 歌单页 */
+.top-btn {
+    flex: none;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--ink);
+}
+.top-btn:active {
+    background: var(--paper-2);
+}
+.top-btn .m-icon {
+    width: 22px;
+    height: 22px;
+}
+.pl-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 10px 0 4px;
+}
+.pl-top .top-btn {
+    width: 44px;
+    height: 44px;
+}
+.pl-top .top-btn .m-icon {
+    width: 26px;
+    height: 26px;
+}
+.pl-top .more .m-icon {
+    width: 24px;
+    height: 24px;
+    stroke-width: 3;
+}
+.pl-top .edit-toggle .m-icon {
+    width: 22px;
+    height: 22px;
+}
+.pl-top .edit-toggle[data-editing="true"] {
+    color: var(--cobalt);
+    background: rgba(36, 64, 184, 0.08);
+}
+/* 顶栏里的歌单名：往下滚过大封面后才出现 */
+.pl-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0 8px;
+    font-size: 17px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.pl-top.is-scrolled .pl-title {
+    opacity: 1;
+}
+.pl-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+}
+.pl-scroll::-webkit-scrollbar {
+    display: none;
+}
+.pl-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px 18px;
+}
+.pl-head .cover {
+    border-radius: 12px;
+}
+.pl-info {
+    min-width: 0;
+}
+.pl-name {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+.pl-count {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+}
+.pl-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px 4px 20px;
+}
+.pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 48px;
+    padding: 0 24px;
+    border-radius: 24px;
+    background: var(--cobalt);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 6px 18px rgba(36, 64, 184, 0.28);
+    transition:
+        background 0.15s,
+        transform 0.1s;
+}
+.pill:active {
+    background: #1c3499;
+    transform: scale(0.98);
+}
+.pill:disabled {
+    opacity: 0.45;
+    box-shadow: none;
+    transform: none;
+}
+.pill .m-icon {
+    width: 22px;
+    height: 22px;
+}
+.pill.play-all {
+    flex: 1;
+}
+.add-btn {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    transition:
+        background 0.15s,
+        transform 0.1s;
+}
+.add-btn:active {
+    background: #f3f4f2;
+    transform: scale(0.94);
+}
+.add-btn .m-icon {
+    width: 24px;
+    height: 24px;
+}
+
+/* 搜索 */
 .lib-top {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 16px 10px 20px;
+    padding: 12px 16px 6px 20px;
     flex: none;
 }
 .m-search {
@@ -69,39 +317,18 @@
     background: none;
     outline: none;
     font-size: 14px;
-    color: var(--ink, #1c2629);
+    color: var(--ink);
 }
 .m-search .m-icon {
     width: 17px;
     height: 17px;
 }
-.top-btn {
-    flex: none;
-    width: 38px;
-    height: 38px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    color: var(--ink, #1c2629);
-}
-.top-btn:hover {
-    background: var(--paper-2, #e3e8e1);
-}
-.top-btn .m-icon {
-    width: 22px;
-    height: 22px;
-}
 
-/* 播放列表 */
+/* 歌曲列表 */
 .m-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0 8px 8px;
-    scrollbar-width: none;
+    flex: none;
     min-height: 0;
-}
-.m-list::-webkit-scrollbar {
-    display: none;
+    padding: 0 8px 8px;
 }
 .m-row {
     display: flex;
@@ -120,45 +347,42 @@
     gap: 12px;
     padding: 8px 4px 8px 12px;
 }
-.m-row .cover {
+.m-row .cover,
+.pk-row .cover {
     border-radius: 8px;
 }
-.m-row .tx {
+.m-row .tx,
+.pk-row .tx {
     flex: 1;
     min-width: 0;
 }
-.m-row .t {
+.m-row .t,
+.pk-row .t {
     display: block;
     font-size: 15px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.m-row .a {
+.m-row .a,
+.pk-row .a {
     display: flex;
     align-items: center;
     gap: 6px;
     margin-top: 2px;
     font-size: 12px;
-    color: var(--muted, #5b6764);
+    color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
 }
-.m-row .a span:last-child {
+.m-row .a span:last-child,
+.pk-row .a span:last-child {
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .m-row.on .t {
-    color: var(--cobalt, #2440b8);
+    color: var(--cobalt);
     font-weight: 600;
-}
-/* 正在播放：封面上的均衡条 */
-.android .m-row .cover,
-.android .ls-row .cover,
-.android .mini .cover {
-    position: relative;
-    border-radius: 8px;
-    overflow: hidden;
 }
 /* 封面容器：均衡条叠在封面上，必须以它为定位基准，否则会盖住整个屏幕 */
 .android .cv {
@@ -194,6 +418,11 @@
 .android .eq i:nth-child(4) {
     animation-delay: -0.45s;
 }
+/* 暂停时均衡条停在当前的长度 */
+.eq.is-paused i,
+.ls-eq.is-paused i {
+    animation-play-state: paused;
+}
 @keyframes android-eq {
     from {
         transform: scaleY(0.25);
@@ -211,6 +440,7 @@
     border: 1px solid #c5ccd0;
     color: #6f7a77;
 }
+/* 编辑模式下行尾的 × */
 .m-del {
     flex: none;
     width: 44px;
@@ -219,21 +449,164 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    color: #b3b9b7;
+    color: #79827f;
 }
 .m-del:active {
     background: rgba(0, 0, 0, 0.06);
-    color: var(--ink, #1c2629);
+    color: var(--ink);
 }
 .m-del .m-icon {
     width: 16px;
     height: 16px;
 }
 .m-empty {
+    margin: 0;
     padding: 30px 12px;
-    color: var(--muted, #5b6764);
+    color: var(--muted);
     font-size: 14px;
     line-height: 1.6;
+}
+/* 刚导入的歌短暂高亮 */
+.m-row.is-flash {
+    animation: android-row-flash 1.6s ease-out 0.3s backwards;
+}
+@keyframes android-row-flash {
+    from {
+        background: rgba(36, 64, 184, 0.14);
+    }
+}
+
+/* 选歌页：把「全部音乐」里的歌加进歌单 */
+.add-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 20px 0 4px;
+}
+.add-top .top-btn {
+    width: 44px;
+    height: 44px;
+}
+.add-top .top-btn .m-icon {
+    width: 26px;
+    height: 26px;
+}
+.add-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.add-all {
+    flex: none;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 2px 0 8px;
+    font-size: 14px;
+}
+.add-all:active {
+    opacity: 0.65;
+}
+.add-all .pk-box {
+    width: 20px;
+    height: 20px;
+}
+.add-all .pk-box .m-icon {
+    width: 13px;
+    height: 13px;
+}
+.add-all[aria-pressed="true"] .pk-box {
+    background: var(--cobalt);
+    border-color: var(--cobalt);
+}
+.add-all[aria-pressed="true"] .pk-box .m-icon {
+    opacity: 1;
+    transform: none;
+}
+/* 没有可加的歌时用它占位，让标题居中 */
+.add-spacer {
+    width: 60px;
+}
+.m-list.add-list {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+.m-list.add-list::-webkit-scrollbar {
+    display: none;
+}
+.pk-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 8px 8px 12px;
+    border-radius: 12px;
+}
+.pk-row:active {
+    background: rgba(0, 0, 0, 0.04);
+}
+.pk-box {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1.5px solid #c5ccd0;
+    color: #fff;
+    transition:
+        background 0.12s,
+        border-color 0.12s;
+}
+.pk-box .m-icon {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2.4;
+    opacity: 0;
+    transform: scale(0.6);
+    transition:
+        opacity 0.12s,
+        transform 0.12s;
+}
+.pk-row.is-on .pk-box {
+    background: var(--cobalt);
+    border-color: var(--cobalt);
+}
+.pk-row.is-on .pk-box .m-icon {
+    opacity: 1;
+    transform: none;
+}
+/* 已在歌单里：灰色的勾，不能再选 */
+.pk-row.is-in {
+    cursor: default;
+}
+.pk-row.is-in .pk-box {
+    background: #dfe3e1;
+    border-color: #dfe3e1;
+}
+.pk-row.is-in .pk-box .m-icon {
+    opacity: 1;
+    transform: none;
+}
+.pk-row.is-in .t,
+.pk-row.is-in .a {
+    opacity: 0.45;
+}
+.add-bar {
+    flex: none;
+    padding: 10px 16px 12px;
+}
+.add-bar .pill {
+    width: 100%;
 }
 
 /* 迷你播放条 */
@@ -242,7 +615,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    /* 与屏幕底边保持约 28px；导航栏高度已由根元素让开，这里只补足差额 */
+    /* 与屏幕底边保持约 28px；导航栏高度已由 .page-body 让开，这里只补足差额 */
     margin: 0 12px max(12px, calc(28px - env(safe-area-inset-bottom, 0px)));
     padding: 8px;
     border-radius: 16px;
@@ -271,7 +644,7 @@
 .mini .a {
     display: block;
     font-size: 12px;
-    color: var(--muted, #5b6764);
+    color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -281,7 +654,7 @@
     left: 0;
     bottom: 0;
     height: 2px;
-    background: var(--cobalt, #2440b8);
+    background: var(--cobalt);
     transition: width 0.2s linear;
 }
 .mini-btn {
@@ -293,12 +666,15 @@
 }
 
 /* 播放页 */
-.android--player {
+.page--player {
     background: linear-gradient(170deg, #3a3346, #141118);
     color: #d6e2ea;
 }
+.page--player.is-leaving {
+    transform: translateY(100%);
+}
 /* 状态栏区域保持应用的浅色底：深色播放页不铺到系统状态栏下，系统的时间和图标始终看得清 */
-.android--player::before {
+.page--player::before {
     content: "";
     position: absolute;
     top: 0;
@@ -324,7 +700,7 @@
     pointer-events: none;
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.18) 40%, rgba(0, 0, 0, 0.6) 100%);
 }
-.android--player .np-snow {
+.page--player .np-snow {
     position: absolute;
     inset: 0;
     z-index: 0;
@@ -333,13 +709,6 @@
     pointer-events: none;
     -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 86%);
     mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 86%);
-}
-.android--player .np-top,
-.android--player .np-head,
-.android--player .np-lyrics,
-.android--player .np-ctl {
-    position: relative;
-    z-index: 1;
 }
 .np-top {
     display: flex;
@@ -480,7 +849,7 @@
     width: 66px;
     height: 66px;
     background: #fff;
-    color: var(--ink, #1c2629);
+    color: var(--ink);
 }
 .np-btns .big .m-icon {
     width: 28px;
@@ -501,7 +870,7 @@
     bottom: 0;
     z-index: 4;
     background: #fff;
-    color: var(--ink, #1c2629);
+    color: var(--ink);
     border-radius: 22px 22px 0 0;
     box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
     /* 弹层贴屏幕底边，内容让开导航栏 */
@@ -538,7 +907,7 @@
 }
 .ls-head span {
     font-size: 13px;
-    color: var(--muted, #5b6764);
+    color: var(--muted);
 }
 .ls-list {
     flex: 1;
@@ -552,6 +921,16 @@
 .ls-row {
     display: flex;
     align-items: center;
+}
+/* 移出前先滑出 */
+.ls-row.is-removing {
+    animation: android-row-out 0.16s ease-in forwards;
+}
+@keyframes android-row-out {
+    to {
+        opacity: 0;
+        transform: translateX(24px);
+    }
 }
 .ls-play {
     flex: 1;
@@ -575,11 +954,11 @@
 }
 .ls-row.on .t,
 .ls-row.on .a {
-    color: var(--cobalt, #2440b8);
+    color: var(--cobalt);
 }
 .ls-row.on .a .m-tag {
-    color: var(--cobalt, #2440b8);
-    border-color: var(--cobalt, #2440b8);
+    color: var(--cobalt);
+    border-color: var(--cobalt);
 }
 .ls-eq {
     position: absolute;
@@ -614,7 +993,7 @@
     gap: 6px;
     margin-top: 4px;
     font-size: 12px;
-    color: var(--muted, #5b6764);
+    color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
 }
@@ -629,12 +1008,38 @@
     border-radius: 50%;
 }
 .ls-del:active {
-    background: var(--paper-2, #e3e8e1);
-    color: var(--ink, #1c2629);
+    background: var(--paper-2);
+    color: var(--ink);
 }
 .ls-del .m-icon {
     width: 18px;
     height: 18px;
+}
+/* 歌单页 ⋯ 的菜单 */
+.menu-sheet {
+    padding: 6px 16px calc(env(safe-area-inset-bottom, 0px) + 10px);
+}
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    height: 56px;
+    padding: 0 16px;
+    border-radius: 12px;
+    font-size: 16px;
+}
+.menu-item:active {
+    background: #f0f1ef;
+}
+.menu-item .m-icon {
+    width: 22px;
+    height: 22px;
+    color: var(--muted);
+}
+.menu-item.danger,
+.menu-item.danger .m-icon {
+    color: #a32b2b;
 }
 
 /* 导入页 */
@@ -668,7 +1073,7 @@
     display: grid;
     place-items: center;
     background: rgba(36, 64, 184, 0.08);
-    color: var(--cobalt, #2440b8);
+    color: var(--cobalt);
 }
 .imp-hero .m-icon {
     width: 44px;
@@ -690,7 +1095,7 @@
     border-radius: 16px;
     font-size: 17px;
     font-weight: 600;
-    color: var(--ink, #1c2629);
+    color: var(--ink);
     background: #fff;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
     text-align: center;
@@ -706,7 +1111,7 @@
     height: 22px;
 }
 .imp-btn.primary {
-    background: var(--cobalt, #2440b8);
+    background: var(--cobalt);
     color: #fff;
     box-shadow: 0 6px 18px rgba(36, 64, 184, 0.28);
 }
@@ -725,16 +1130,19 @@
 .imp-done p {
     margin: 0 0 16px;
     font-size: 17px;
-    color: var(--ink, #1c2629);
+    color: var(--ink);
 }
 .imp-done .imp-btn {
     width: 100%;
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .page,
     .android .eq i,
     .ls-eq i,
-    .mini .p {
+    .mini .p,
+    .m-row.is-flash,
+    .ls-row.is-removing {
         animation: none;
         transition: none;
     }

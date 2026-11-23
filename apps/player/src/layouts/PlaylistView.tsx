@@ -10,7 +10,7 @@ type Props = {
     currentId: string | null;
     playing: boolean;
     onCreate: (name: string) => Promise<string>;
-    onAdd: (id: string, tracks: string[]) => Promise<void>;
+    onAdd: (id: string, tracks: string[]) => Promise<number>;
     onRemove: (id: string, track: string) => void;
     onRemoveLibrary?: (track: string) => void;
     onPlay: (id: string | null, track: string | null) => void;

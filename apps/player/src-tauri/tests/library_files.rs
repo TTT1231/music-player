@@ -7,7 +7,7 @@ use std::{
 use music_core::{FileRef, load_session};
 use music_player_shell_lib::{
     audio_backend::DeviceBackend,
-    controller::{Controller, path_resolver},
+    controller::{Controller, PlatformBehavior, path_resolver},
     library_files::LibraryFiles,
 };
 
@@ -219,4 +219,23 @@ fn library_only_import_and_removal_work_for_tracks_outside_the_queue() {
     player.remove_managed(&report.added[0], &library).unwrap();
     assert!(!owned.exists());
     assert!(player.state().library.is_empty());
+}
+
+#[test]
+fn managed_import_saves_the_platform_queue_policy_before_returning() {
+    for (behavior, queue_len) in [(PlatformBehavior::desktop(), 1), (PlatformBehavior::android(), 0)] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = tempfile::tempdir().unwrap();
+        let audio = source(input.path(), "甲 - 歌.mp3", b"audio");
+        let session = dir.path().join("session.json");
+        let library = LibraryFiles::new(dir.path().join("assets"));
+        let mut player = controller(&session);
+        player.set_behavior(behavior);
+        player.import_managed(vec![audio], &library, remove_source).unwrap();
+
+        let saved = load_session(&session).unwrap().unwrap();
+        assert_eq!(saved.tracks.len(), queue_len);
+        assert_eq!(saved.library.unwrap().len(), 1);
+        assert_eq!(player.state().tracks.len(), queue_len);
+    }
 }

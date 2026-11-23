@@ -35,21 +35,15 @@ describe("桌面歌单弹层与滚动区域", () => {
     });
 
     it("本次选择显示蓝色，已经添加的歌曲保持不可选择", async () => {
-        const imported = await importFixtures();
+        await importFixtures();
         await (await browser.$('[aria-label="展开歌单"]')).click();
         await (await browser.$('[aria-label="新建歌单"]')).click();
         await (await browser.$("#playlist-name")).setValue("收藏");
         await (await browser.$("button=创建")).click();
         await browser.waitUntil(async () => (await browser.$("h1=收藏")).isExisting());
-        await browser.execute(
-            (track: string) =>
-                (
-                    window as unknown as {
-                        __TAURI_INTERNALS__: { invoke: (cmd: string, args: unknown) => Promise<unknown> };
-                    }
-                ).__TAURI_INTERNALS__.invoke("add_playlist_tracks", { id: "list-1", tracks: [track] }),
-            imported.added[1],
-        );
+        await (await browser.$("button=添加歌曲")).click();
+        await (await browser.$('[aria-label="选择 Track Two"]')).click();
+        await (await browser.$("button=添加")).click();
         await browser.waitUntil(async () => (await browser.$('[aria-label="从当前歌单移出 Track Two"]')).isExisting());
         await (await browser.$("button=添加歌曲")).click();
         await (await browser.$('[aria-label="选择 Track Three"]')).click();
