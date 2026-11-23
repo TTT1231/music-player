@@ -9,6 +9,8 @@ use music_core::{FileRef, Player, is_audio_file, scan_dir};
 
 use crate::controller::LocationResolver;
 
+const LYRICS_FOLDER: &str = "lyrics";
+
 #[derive(Clone)]
 pub struct LibraryFiles {
     root: PathBuf,
@@ -59,7 +61,7 @@ impl LibraryFiles {
             })
         };
         ensure("music")?;
-        ensure("lysis")?;
+        ensure(LYRICS_FOLDER)?;
         // 桌面：同名图片与音乐一起入库，作为无内嵌封面歌曲的展示回退
         #[cfg(desktop)]
         ensure("img")?;
@@ -71,9 +73,8 @@ impl LibraryFiles {
             if !used.contains(file.location.as_str()) || (self.owns(source) && source.is_file()) {
                 continue;
             }
-            let folder = self
-                .root
-                .join(asset_folder(&file.file_name).expect("filtered file type"));
+            let folder_name = asset_folder(&file.file_name).expect("filtered file type");
+            let folder = self.root.join(folder_name);
             let copy = || stage_file(&folder, &file.location, &file.file_name, open);
             let saved = copy().map_err(|error| {
                 io::Error::new(
@@ -86,13 +87,10 @@ impl LibraryFiles {
                 .files
                 .push((std::mem::replace(&mut file.location, location), saved));
 
-            // 音频源旁边 img/ 里的同名图片一并入库，移除歌曲时一并删除
+            // 源文件的同名图片一并入库，移除歌曲时一并删除
             #[cfg(desktop)]
-            if asset_folder(&file.file_name) == Some("music")
-                && let Some(parent) = source.parent()
-                && let Some(stem) = source.file_stem().and_then(|stem| stem.to_str())
-                && let Some(image) =
-                    crate::cover::find_image_file(&parent.join("img"), stem.trim().to_lowercase().as_str())
+            if folder_name == "music"
+                && let Some(image) = crate::cover::import_sidecar(source)
                 && let Some(image_name) = image.file_name().and_then(|name| name.to_str())
             {
                 let image_folder = self.root.join("img");
@@ -134,7 +132,9 @@ impl LibraryFiles {
 
     fn owns(&self, path: &Path) -> bool {
         let Some(parent) = path.parent() else { return false };
-        let Some(folder @ ("music" | "lysis" | "img")) = parent.file_name().and_then(|name| name.to_str()) else {
+        let Some(folder @ ("music" | LYRICS_FOLDER | "lysis" | "img")) =
+            parent.file_name().and_then(|name| name.to_str())
+        else {
             return false;
         };
         let owned = self.root.join(folder);
@@ -152,7 +152,7 @@ fn asset_folder(name: &str) -> Option<&'static str> {
         .rsplit_once('.')
         .is_some_and(|(stem, ext)| !stem.is_empty() && ext.eq_ignore_ascii_case("lrc"))
     {
-        Some("lysis")
+        Some(LYRICS_FOLDER)
     } else {
         None
     }

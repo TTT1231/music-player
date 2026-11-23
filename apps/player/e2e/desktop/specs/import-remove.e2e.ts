@@ -25,7 +25,7 @@ describe("从队列和曲库移除", () => {
         const index = before.indexOf("Track Two");
         const row = (await browser.$$(".q-row"))[index];
         const audio = path.join(dataDir, "assets", "music", "Test Artist - Track Two.ogg");
-        const lyrics = path.join(dataDir, "assets", "lysis", "Test Artist - Track Two.lrc");
+        const lyrics = path.join(dataDir, "assets", "lyrics", "Test Artist - Track Two.lrc");
         expect(existsSync(audio)).toBe(true);
         expect(existsSync(lyrics)).toBe(true);
         expect(existsSync(path.join(inputDir, "Test Artist - Track Two.ogg"))).toBe(false);

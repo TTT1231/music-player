@@ -81,7 +81,7 @@ fn moves_only_the_first_copy_of_each_name_then_removes_the_owned_pair() {
     let audio = Path::new(&track.audio);
     let lyrics = Path::new(track.lyrics.as_deref().unwrap());
     assert!(audio.starts_with(dir.path().join("installation/assets/music")));
-    assert!(lyrics.starts_with(dir.path().join("installation/assets/lysis")));
+    assert!(lyrics.starts_with(dir.path().join("installation/assets/lyrics")));
     assert_eq!(fs::read(audio).unwrap(), b"first");
     assert_eq!(player.lyrics(&report.added[0]).unwrap().lines[0].text, "hello");
     let repeated = player
@@ -136,6 +136,57 @@ fn imports_the_sidecar_image_with_its_song_and_removes_them_together() {
             .audio
             .contains("乙 - 曲")
     );
+}
+
+#[test]
+fn imports_lyrics_and_cover_from_siblings_of_the_music_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input");
+    for folder in ["music", "lyrics", "img"] {
+        fs::create_dir_all(input.join(folder)).unwrap();
+    }
+    let audio = source(&input.join("music"), "甲 - 歌.mp3", b"audio");
+    let lyrics = source(&input.join("lyrics"), "甲 - 歌.lrc", b"[00:01]hello");
+    let image = source(&input.join("img"), "甲 - 歌.jpg", b"jpeg-bytes");
+    let root = dir.path().join("assets");
+    let library = LibraryFiles::new(root.clone());
+    let mut player = controller(&dir.path().join("session.json"));
+
+    let report = player
+        .import_managed(vec![audio, lyrics], &library, remove_source)
+        .unwrap();
+
+    assert_eq!(report.with_lyrics, 1);
+    assert_eq!(player.lyrics(&report.added[0]).unwrap().lines[0].text, "hello");
+    assert_eq!(fs::read(root.join("img/甲 - 歌.jpg")).unwrap(), b"jpeg-bytes");
+    assert!(!Path::new(&image.location).exists());
+}
+
+#[test]
+fn restores_deduplicates_and_removes_lyrics_in_the_legacy_owned_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("assets");
+    fs::create_dir_all(root.join("music")).unwrap();
+    fs::create_dir_all(root.join("lysis")).unwrap();
+    let audio = source(&root.join("music"), "song.mp3", b"audio");
+    let lyrics = source(&root.join("lysis"), "song.lrc", b"[00:01]old lyrics");
+    let duplicate = source(dir.path(), "song.lrc", b"[00:01]duplicate");
+    let session_path = dir.path().join("session.json");
+    let mut old_player = controller(&session_path);
+    let id = old_player.import_files(vec![audio, lyrics.clone()]).added.remove(0);
+    old_player.save().unwrap();
+    drop(old_player);
+
+    let mut player = controller(&session_path);
+    let library = LibraryFiles::new(root);
+    assert_eq!(player.lyrics(&id).unwrap().lines[0].text, "old lyrics");
+    let report = player
+        .import_managed(vec![duplicate.clone()], &library, remove_source)
+        .unwrap();
+    assert_eq!(report.duplicates, 1);
+    player.remove_managed(&id, &library).unwrap();
+    assert!(!Path::new(&lyrics.location).exists());
+    assert!(Path::new(&duplicate.location).exists());
 }
 
 #[test]

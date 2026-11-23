@@ -106,9 +106,23 @@ pub fn sidecar_paths(audio: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// 导入时沿用音频目录下的 img，也支持与 music 同级的 img。
+#[cfg(desktop)]
+pub(crate) fn import_sidecar(audio: &Path) -> Option<PathBuf> {
+    let parent = audio.parent()?;
+    let stem = audio.file_stem()?.to_str()?.trim().to_lowercase();
+    find_image_file(&parent.join("img"), &stem).or_else(|| {
+        if parent.file_name()?.to_str()?.eq_ignore_ascii_case("music") {
+            find_image_file(&parent.parent()?.join("img"), &stem)
+        } else {
+            None
+        }
+    })
+}
+
 /// 在目录里找“去扩展名、trim、忽略大小写后等于 wanted”的 jpg/jpeg/png。
 #[cfg(desktop)]
-pub(crate) fn find_image_file(dir: &Path, wanted: &str) -> Option<PathBuf> {
+fn find_image_file(dir: &Path, wanted: &str) -> Option<PathBuf> {
     for entry in fs::read_dir(dir).ok()?.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
