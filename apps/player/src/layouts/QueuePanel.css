@@ -147,6 +147,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    margin-bottom: 20px;
     /* 滚动条用 ::-webkit-scrollbar 定制（细、无上下箭头）；设置 scrollbar-width 会退回带箭头的系统样式 */
     /* 切换列表样式时由脚本保持位置，不让浏览器的滚动锚定再调整一次 */
     overflow-anchor: none;

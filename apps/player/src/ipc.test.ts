@@ -90,3 +90,27 @@ test("event listeners expose the Rust payload and can be removed", async () => {
     offNotice();
     offPlayback();
 });
+
+test("playlist commands and library-only imports use the IPC contract", async () => {
+    const calls: Array<[string, unknown]> = [];
+    mockIPC((command, args) => {
+        calls.push([command, args]);
+        return null;
+    });
+    await commands.importPaths(["song.mp3"], false);
+    await commands.pickAndImport("files", false);
+    await commands.createPlaylist("收藏");
+    await commands.addPlaylistTracks("list-1", ["a", "b"]);
+    await commands.removePlaylistTrack("list-1", "a");
+    await commands.playPlaylist("list-1", "b");
+    await commands.removeQueueTrack("a");
+    expect(calls).toEqual([
+        ["import_paths", { paths: ["song.mp3"], intoQueue: false }],
+        ["pick_and_import", { kind: "files", intoQueue: false }],
+        ["create_playlist", { name: "收藏" }],
+        ["add_playlist_tracks", { id: "list-1", tracks: ["a", "b"] }],
+        ["remove_playlist_track", { id: "list-1", track: "a" }],
+        ["play_playlist", { id: "list-1", track: "b" }],
+        ["remove_queue_track", { id: "a" }],
+    ]);
+});

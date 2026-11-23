@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => {
             setPitch: command(),
             playTrack: command(),
             removeTrack: command(),
+            removeQueueTrack: command(),
+            createPlaylist: command(),
+            addPlaylistTracks: command(),
+            removePlaylistTrack: command(),
+            playPlaylist: command(),
             moveTrack: command(),
             toggleDesktopLyrics: vi.fn().mockResolvedValue(true),
             getLyrics: vi.fn().mockResolvedValue({ lines: [{ timeMs: 1_000, text: "第一句" }] }),
@@ -172,17 +177,19 @@ test("无当前歌曲时显示空状态", () => {
     expect(screen.getByText("在右侧播放队列里双击歌曲")).toBeTruthy();
 });
 
-test("从播放列表移除后显示轻提示", async () => {
+test("队列移除保留曲库，曲库移除需要确认", async () => {
     render(<DesktopLayout />);
     fireEvent.click(screen.getByRole("button", { name: "从播放列表移除" }));
-    expect(screen.getByRole("alertdialog", { name: "移除歌曲" })).toBeTruthy();
+    await waitFor(() => expect(mocks.commands.removeQueueTrack).toHaveBeenCalledExactlyOnceWith("track"));
     expect(mocks.commands.removeTrack).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "展开歌单" }));
+    fireEvent.click(screen.getByRole("button", { name: "从曲库移除 歌曲" }));
+    expect(screen.getByRole("alertdialog", { name: "移除歌曲" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(mocks.commands.removeTrack).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "从播放列表移除" }));
+    fireEvent.click(screen.getByRole("button", { name: "从曲库移除 歌曲" }));
     fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
     await waitFor(() => expect(mocks.commands.removeTrack).toHaveBeenCalledExactlyOnceWith("track"));
-    expect(await screen.findByText("已从播放列表移除")).toBeTruthy();
 });
 
 test("无法读取的文件被跳过时显示轻提示", () => {
@@ -210,12 +217,11 @@ test("拖入文件即打开导入对话框，放下后导入拖入的路径", as
 test("移除提示之后，新的无法读取提示仍能显示", async () => {
     const view = render(<DesktopLayout />);
     fireEvent.click(screen.getByRole("button", { name: "从播放列表移除" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
-    expect(await screen.findByText("已从播放列表移除")).toBeTruthy();
+    expect(await screen.findByText("已从播放队列移除，歌单中的歌曲仍保留。")).toBeTruthy();
     mocks.notice = { kind: "unreadable", title: "损坏.mp3" };
     view.rerender(<DesktopLayout />);
     expect(await screen.findByText("无法读取 损坏.mp3，已跳过")).toBeTruthy();
-    expect(screen.queryByText("已从播放列表移除")).toBeNull();
+    expect(screen.queryByText("已从播放队列移除，歌单中的歌曲仍保留。")).toBeNull();
 });
 
 test("弹层超出底栏时向内收回，与底栏两端保持 8px", () => {

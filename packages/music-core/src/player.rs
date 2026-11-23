@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::library::{FileRef, ImportReport, Playlist, TrackId};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedPlaylist {
+    pub id: String,
+    pub name: String,
+    pub track_ids: Vec<TrackId>,
+}
+
 /// 当前歌曲播放超过这个时长时，“上一首”回到本曲开头。
 pub const RESTART_THRESHOLD: Duration = Duration::from_secs(3);
 /// 倍速范围，步长 0.1。
@@ -47,6 +55,9 @@ pub enum Step {
 #[derive(Debug, Clone)]
 pub struct Player {
     pub(crate) playlist: Playlist,
+    pub(crate) library: Playlist,
+    pub(crate) saved_playlists: Vec<SavedPlaylist>,
+    pub(crate) queue_source: Option<String>,
     pub(crate) current: Option<TrackId>,
     pub(crate) playing: bool,
     pub(crate) mode: PlayMode,
@@ -65,7 +76,10 @@ impl Player {
     /// 指定随机播放的种子。
     pub fn with_seed(playlist: Playlist, seed: u64) -> Self {
         Self {
+            library: playlist.clone(),
             playlist,
+            saved_playlists: Vec::new(),
+            queue_source: None,
             current: None,
             playing: false,
             mode: PlayMode::default(),
@@ -81,9 +95,98 @@ impl Player {
         &self.playlist
     }
 
+    pub fn library(&self) -> &Playlist {
+        &self.library
+    }
+    pub fn saved_playlists(&self) -> &[SavedPlaylist] {
+        &self.saved_playlists
+    }
+    pub fn queue_source(&self) -> Option<&str> {
+        self.queue_source.as_deref()
+    }
+
+    pub fn create_saved_playlist(&mut self, name: &str) -> Result<String, String> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 40 {
+            return Err("歌单名称须为 1–40 个字符".into());
+        }
+        if name.to_lowercase() == "全部音乐"
+            || self
+                .saved_playlists
+                .iter()
+                .any(|p| p.name.to_lowercase() == name.to_lowercase())
+        {
+            return Err("这个名称已被使用".into());
+        }
+        let mut n = 1u64;
+        while self.saved_playlists.iter().any(|p| p.id == format!("list-{n}")) {
+            n += 1;
+        }
+        let id = format!("list-{n}");
+        self.saved_playlists.push(SavedPlaylist {
+            id: id.clone(),
+            name: name.to_owned(),
+            track_ids: Vec::new(),
+        });
+        Ok(id)
+    }
+
+    pub fn add_to_saved_playlist(&mut self, id: &str, tracks: &[TrackId]) -> Result<(), String> {
+        let list = self
+            .saved_playlists
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or("歌单不存在")?;
+        for track in tracks {
+            if self.library.get(track).is_some() && !list.track_ids.contains(track) {
+                list.track_ids.push(track.clone());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn remove_from_saved_playlist(&mut self, id: &str, track: &TrackId) -> Result<(), String> {
+        let list = self
+            .saved_playlists
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or("歌单不存在")?;
+        list.track_ids.retain(|entry| entry != track);
+        Ok(())
+    }
+
+    pub fn play_saved_playlist(&mut self, id: Option<&str>, start: Option<&TrackId>) -> Result<Step, String> {
+        let source = id_for_source(id);
+        let tracks = match id {
+            Some(id) => self
+                .saved_playlists
+                .iter()
+                .find(|p| p.id == id)
+                .ok_or("歌单不存在")?
+                .track_ids
+                .iter()
+                .filter_map(|id| self.library.get(id).cloned())
+                .collect(),
+            None => self.library.tracks().to_vec(),
+        };
+        let playlist = Playlist::from_tracks(tracks);
+        let id = start
+            .cloned()
+            .or_else(|| playlist.tracks().first().map(|track| track.id.clone()))
+            .ok_or("歌单为空")?;
+        if playlist.get(&id).is_none() {
+            return Err("歌曲不在歌单中".into());
+        }
+        self.playlist = playlist;
+        self.queue_source = Some(source);
+        Ok(self.play_track(&id))
+    }
+
     /// 更新歌曲的已探测时长；歌曲不存在时返回 false。
     pub fn set_duration(&mut self, id: &TrackId, duration_ms: u64) -> bool {
-        self.playlist.set_duration(id, duration_ms)
+        let updated = self.library.set_duration(id, duration_ms);
+        self.playlist.set_duration(id, duration_ms);
+        updated
     }
 
     pub fn current(&self) -> Option<&TrackId> {
@@ -213,12 +316,38 @@ impl Player {
     }
 
     pub fn import(&mut self, files: impl IntoIterator<Item = FileRef>) -> ImportReport {
-        self.playlist.import(files)
+        self.import_inner(files, true)
+    }
+
+    pub fn import_library(&mut self, files: impl IntoIterator<Item = FileRef>) -> ImportReport {
+        self.import_inner(files, false)
+    }
+
+    fn import_inner(&mut self, files: impl IntoIterator<Item = FileRef>, into_queue: bool) -> ImportReport {
+        let report = self.library.import(files);
+        let mut ids: Vec<_> = self.playlist.tracks().iter().map(|t| t.id.clone()).collect();
+        if into_queue {
+            for id in &report.added {
+                if !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+        }
+        self.playlist = Playlist::from_tracks(ids.iter().filter_map(|id| self.library.get(id).cloned()).collect());
+        report
     }
 
     /// 移出列表。移除的是当前歌曲时，选中原来排在它后面的歌（末尾则回到第一首），
     /// 播放状态不变并返回 `Some(Step::Play)`；列表变空时返回 `Some(Step::Stop)`。
     pub fn remove(&mut self, id: &TrackId) -> Option<Step> {
+        self.library.remove(id);
+        for list in &mut self.saved_playlists {
+            list.track_ids.retain(|track| track != id);
+        }
+        self.remove_from_queue(id)
+    }
+
+    pub fn remove_from_queue(&mut self, id: &TrackId) -> Option<Step> {
         let removed_at = self.playlist.position(id)?;
         self.playlist.remove(id);
         if self.current.as_ref() != Some(id) {
@@ -280,4 +409,8 @@ impl Player {
         self.rng = x;
         (x.wrapping_mul(0x2545_F491_4F6C_DD1D) % below as u64) as usize
     }
+}
+
+fn id_for_source(id: Option<&str>) -> String {
+    id.unwrap_or("all").to_owned()
 }

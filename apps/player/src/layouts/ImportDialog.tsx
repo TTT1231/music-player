@@ -9,6 +9,7 @@ export type ImportDialogProps = {
     onGoListen: (firstId: string | null) => void;
     droppedPaths?: string[] | null;
     dragging?: boolean;
+    intoQueue?: boolean;
 };
 
 function MusicIcon() {
@@ -28,7 +29,14 @@ function FolderIcon() {
     );
 }
 
-export function ImportDialog({ onClose, onImported, onGoListen, droppedPaths, dragging = false }: ImportDialogProps) {
+export function ImportDialog({
+    onClose,
+    onImported,
+    onGoListen,
+    droppedPaths,
+    dragging = false,
+    intoQueue = true,
+}: ImportDialogProps) {
     const [result, setResult] = useState<ImportResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -83,9 +91,11 @@ export function ImportDialog({ onClose, onImported, onGoListen, droppedPaths, dr
     useEffect(() => {
         if (droppedPaths && droppedPaths.length && lastDrop.current !== droppedPaths) {
             lastDrop.current = droppedPaths;
-            void run(() => commands.importPaths(droppedPaths));
+            void run(() =>
+                intoQueue ? commands.importPaths(droppedPaths) : commands.importPaths(droppedPaths, false),
+            );
         }
-    }, [droppedPaths, run]);
+    }, [droppedPaths, run, intoQueue]);
 
     const success = Boolean(result && (result.added.length || result.lyricsAttached));
     return (
@@ -113,7 +123,11 @@ export function ImportDialog({ onClose, onImported, onGoListen, droppedPaths, dr
                     <button
                         className={`import-button${success ? "" : " primary"}`}
                         disabled={busy}
-                        onClick={() => void run(() => commands.pickAndImport("files"))}
+                        onClick={() =>
+                            void run(() =>
+                                intoQueue ? commands.pickAndImport("files") : commands.pickAndImport("files", false),
+                            )
+                        }
                     >
                         <MusicIcon />
                         选择歌曲
@@ -121,7 +135,11 @@ export function ImportDialog({ onClose, onImported, onGoListen, droppedPaths, dr
                     <button
                         className="import-button"
                         disabled={busy}
-                        onClick={() => void run(() => commands.pickAndImport("folder"))}
+                        onClick={() =>
+                            void run(() =>
+                                intoQueue ? commands.pickAndImport("folder") : commands.pickAndImport("folder", false),
+                            )
+                        }
                     >
                         <FolderIcon />
                         导入整个文件夹

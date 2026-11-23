@@ -5,12 +5,18 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::library::{Playlist, Track, TrackId};
-use crate::player::{PlayMode, Player};
+use crate::player::{PlayMode, Player, SavedPlaylist};
 
 /// 重启后要恢复的内容：播放列表及顺序、上次的歌曲、播放模式和音量。倍速和升降调不保存。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     pub tracks: Vec<Track>,
+    #[serde(default)]
+    pub library: Option<Vec<Track>>,
+    #[serde(default)]
+    pub saved_playlists: Vec<SavedPlaylist>,
+    #[serde(default)]
+    pub queue_source: Option<String>,
     pub current: Option<TrackId>,
     pub mode: PlayMode,
     pub volume: f32,
@@ -20,6 +26,9 @@ impl Player {
     pub fn session(&self) -> Session {
         Session {
             tracks: self.playlist.tracks().to_vec(),
+            library: Some(self.library.tracks().to_vec()),
+            saved_playlists: self.saved_playlists.clone(),
+            queue_source: self.queue_source.clone(),
             current: self.current.clone(),
             mode: self.mode,
             volume: self.volume,
@@ -28,7 +37,11 @@ impl Player {
 
     /// 从保存的内容恢复，处于暂停状态。上次的歌曲已不在列表里时不选中任何歌曲。
     pub fn restore(session: Session) -> Player {
-        let mut player = Player::new(Playlist::from_tracks(session.tracks));
+        let library = session.library.unwrap_or_else(|| session.tracks.clone());
+        let mut player = Player::new(Playlist::from_tracks(library));
+        player.playlist = Playlist::from_tracks(session.tracks);
+        player.saved_playlists = session.saved_playlists;
+        player.queue_source = session.queue_source;
         player.current = session.current.filter(|id| player.playlist.position(id).is_some());
         player.set_mode(session.mode);
         player.set_volume(session.volume);

@@ -140,15 +140,20 @@ pub fn get_state(actor: State<'_, DeviceActor>) -> Result<PlayerState, String> {
 }
 
 #[tauri::command(async)]
-pub fn import_paths(app: AppHandle, paths: Vec<String>) -> Result<ImportResult, String> {
+pub fn import_paths(app: AppHandle, paths: Vec<String>, into_queue: Option<bool>) -> Result<ImportResult, String> {
     #[cfg(desktop)]
     {
         let files = files_from_paths(&paths).map_err(|error| error.to_string())?;
-        import_managed(&app, files, |location| std::fs::remove_file(location))
+        import_managed(
+            &app,
+            files,
+            |location| std::fs::remove_file(location),
+            into_queue.unwrap_or(true),
+        )
     }
     #[cfg(not(desktop))]
     {
-        let _ = (app, paths);
+        let _ = (app, paths, into_queue);
         Err("请通过系统文件选择器导入".into())
     }
 }
@@ -157,6 +162,7 @@ fn import_managed(
     app: &AppHandle,
     files: Vec<music_core::FileRef>,
     remove_source: impl Fn(&str) -> std::io::Result<()> + Send + 'static,
+    into_queue: bool,
 ) -> Result<ImportResult, String> {
     let library = app.state::<LibraryFiles>().inner().clone();
     import_with(
@@ -164,14 +170,18 @@ fn import_managed(
         &app.state::<CoverStore>(),
         move |controller| {
             controller
-                .import_managed(files, &library, remove_source)
+                .import_managed_with_queue(files, &library, remove_source, into_queue)
                 .map_err(|error| error.to_string())
         },
     )
 }
 
 #[tauri::command]
-pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<ImportResult>, String> {
+pub async fn pick_and_import(
+    app: AppHandle,
+    kind: String,
+    into_queue: Option<bool>,
+) -> Result<Option<ImportResult>, String> {
     #[cfg(desktop)]
     {
         let chosen = match kind.as_str() {
@@ -190,7 +200,7 @@ pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<Impo
                     .map_err(|error| error.to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        import_paths(app, paths).map(Some)
+        import_paths(app, paths, into_queue).map(Some)
     }
     // 安卓：系统文件选择器返回内容 URI 和显示名；URI 本身不含文件名，配对和歌名都要用显示名
     #[cfg(mobile)]
@@ -209,9 +219,12 @@ pub async fn pick_and_import(app: AppHandle, kind: String) -> Result<Option<Impo
             .map(|file| music_core::FileRef::new(file.uri, file.name))
             .collect();
         let handle = app.clone();
-        import_managed(&app, files, move |uri| {
-            tauri_plugin_playback::delete_source(&handle, uri).map_err(std::io::Error::other)
-        })
+        import_managed(
+            &app,
+            files,
+            move |uri| tauri_plugin_playback::delete_source(&handle, uri).map_err(std::io::Error::other),
+            into_queue.unwrap_or(true),
+        )
         .map(Some)
     }
 }
@@ -237,6 +250,31 @@ pub fn play_track(
     id: String,
 ) -> Result<(), String> {
     with_output(&actor, &audio, move |c| c.play_track(&id))
+}
+#[tauri::command(async)]
+pub fn create_playlist(actor: State<'_, DeviceActor>, name: String) -> Result<String, String> {
+    actor.call(move |c| c.create_playlist(name))?
+}
+#[tauri::command(async)]
+pub fn add_playlist_tracks(actor: State<'_, DeviceActor>, id: String, tracks: Vec<String>) -> Result<(), String> {
+    actor.call(move |c| c.add_playlist_tracks(id, tracks))?
+}
+#[tauri::command(async)]
+pub fn remove_playlist_track(actor: State<'_, DeviceActor>, id: String, track: String) -> Result<(), String> {
+    actor.call(move |c| c.remove_playlist_track(id, track))?
+}
+#[tauri::command(async)]
+pub fn play_playlist(
+    actor: State<'_, DeviceActor>,
+    audio: State<'_, AudioAvailability>,
+    id: Option<String>,
+    track: Option<String>,
+) -> Result<(), String> {
+    with_output(&actor, &audio, move |c| c.play_playlist(id, track))?
+}
+#[tauri::command(async)]
+pub fn remove_queue_track(actor: State<'_, DeviceActor>, id: String) -> Result<(), String> {
+    actor.call(move |c| c.remove_queue_track(&id))
 }
 #[tauri::command(async)]
 pub fn remove_track(actor: State<'_, DeviceActor>, library: State<'_, LibraryFiles>, id: String) -> Result<(), String> {

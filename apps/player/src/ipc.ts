@@ -15,6 +15,9 @@ export type TrackView = {
 };
 export type PlayerState = {
     tracks: TrackView[];
+    library?: TrackView[];
+    playlists?: SavedPlaylist[];
+    queueSource?: string | null;
     currentId: string | null;
     playing: boolean;
     mode: PlayMode;
@@ -24,6 +27,7 @@ export type PlayerState = {
     positionMs: number;
     durationMs: number | null;
 };
+export type SavedPlaylist = { id: string; name: string; trackIds: string[] };
 export type ImportResult = {
     added: string[];
     withLyrics: number;
@@ -47,9 +51,16 @@ export type Notice = { kind: "unreadable"; title: string };
 export const commands = {
     appInfo: () => invoke<AppInfo>("app_info"),
     getState: () => invoke<PlayerState>("get_state"),
-    importPaths: (paths: string[]) => invoke<ImportResult>("import_paths", { paths }),
-    pickAndImport: (kind: "files" | "folder") => invoke<ImportResult | null>("pick_and_import", { kind }),
+    importPaths: (paths: string[], intoQueue = true) =>
+        invoke<ImportResult>("import_paths", intoQueue ? { paths } : { paths, intoQueue }),
+    pickAndImport: (kind: "files" | "folder", intoQueue = true) =>
+        invoke<ImportResult | null>("pick_and_import", intoQueue ? { kind } : { kind, intoQueue }),
     playTrack: (id: string) => invoke<void>("play_track", { id }),
+    createPlaylist: (name: string) => invoke<string>("create_playlist", { name }),
+    addPlaylistTracks: (id: string, tracks: string[]) => invoke<void>("add_playlist_tracks", { id, tracks }),
+    removePlaylistTrack: (id: string, track: string) => invoke<void>("remove_playlist_track", { id, track }),
+    playPlaylist: (id: string | null, track: string | null = null) => invoke<void>("play_playlist", { id, track }),
+    removeQueueTrack: (id: string) => invoke<void>("remove_queue_track", { id }),
     removeTrack: (id: string) => invoke<void>("remove_track", { id }),
     play: () => invoke<void>("play"),
     pause: () => invoke<void>("pause"),

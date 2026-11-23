@@ -21,7 +21,7 @@ impl LibraryFiles {
 
     pub(crate) fn unique_files(&self, player: &Player, mut files: Vec<FileRef>) -> (Vec<FileRef>, usize) {
         let mut names = HashSet::new();
-        for track in player.playlist().tracks() {
+        for track in player.library().tracks() {
             for location in std::iter::once(track.audio.as_str()).chain(track.lyrics.as_deref()) {
                 let path = Path::new(location);
                 if self.owns(path)
@@ -160,7 +160,7 @@ fn asset_folder(name: &str) -> Option<&'static str> {
 
 fn locations(player: &Player) -> HashSet<&str> {
     player
-        .playlist()
+        .library()
         .tracks()
         .iter()
         .flat_map(|track| std::iter::once(track.audio.as_str()).chain(track.lyrics.as_deref()))

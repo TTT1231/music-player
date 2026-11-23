@@ -11,5 +11,5 @@ mod session;
 pub use library::{FileRef, ImportReport, Playlist, Track, TrackId, is_audio_file, scan_dir};
 pub use lrc::{LyricLine, Lyrics, decode_text, parse_lrc};
 pub use name::{TrackName, UNKNOWN_ARTIST, parse_track_name};
-pub use player::{PITCH_RANGE, PlayMode, Player, RATE_RANGE, RESTART_THRESHOLD, Step};
+pub use player::{PITCH_RANGE, PlayMode, Player, RATE_RANGE, RESTART_THRESHOLD, SavedPlaylist, Step};
 pub use session::{Session, load_session, save_session};

@@ -38,7 +38,7 @@ export function RemoveTrackDialog({
         >
             <h2 id="remove-track-title">移除歌曲</h2>
             <p id="remove-track-description">
-                确定从播放列表移除《{track.title}》？曲库中的音乐文件{track.hasLyrics ? "和配对歌词" : ""}也会被删除。
+                确定从曲库移除《{track.title}》？曲库中的音乐文件{track.hasLyrics ? "和配对歌词" : ""}也会被删除。
             </p>
             <div className="remove-track-actions">
                 <button ref={cancel} type="button" onClick={onCancel}>

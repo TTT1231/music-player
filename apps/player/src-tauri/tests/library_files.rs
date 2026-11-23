@@ -197,3 +197,26 @@ fn android_read_only_source_stays_in_place_and_import_uses_the_local_file() {
     assert!(Path::new(&legacy_audio.location).exists());
     assert!(Path::new(&input.location).exists());
 }
+
+#[test]
+fn library_only_import_and_removal_work_for_tracks_outside_the_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = tempfile::tempdir().unwrap();
+    let audio = source(input.path(), "甲 - 歌.mp3", b"audio");
+    let session = dir.path().join("session.json");
+    let library = LibraryFiles::new(dir.path().join("assets"));
+    let mut player = controller(&session);
+    let report = player
+        .import_managed_with_queue(vec![audio], &library, remove_source, false)
+        .unwrap();
+    assert!(player.state().tracks.is_empty());
+    assert_eq!(player.state().library.len(), 1);
+    drop(player);
+    let mut player = controller(&session);
+    assert_eq!(player.state().library.len(), 1);
+    let owned = dir.path().join("assets/music/甲 - 歌.mp3");
+    assert!(owned.exists());
+    player.remove_managed(&report.added[0], &library).unwrap();
+    assert!(!owned.exists());
+    assert!(player.state().library.is_empty());
+}

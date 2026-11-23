@@ -89,3 +89,17 @@ fn duration_survives_round_trip_and_legacy_sessions_default_to_none() {
     let legacy = load_session(&path).unwrap().unwrap();
     assert!(legacy.tracks.iter().all(|track| track.duration_ms.is_none()));
 }
+
+#[test]
+fn legacy_session_restores_the_original_list_as_library_and_queue() {
+    let original = used_player().session();
+    let mut json = serde_json::to_value(&original).unwrap();
+    let object = json.as_object_mut().unwrap();
+    object.remove("library");
+    object.remove("saved_playlists");
+    object.remove("queue_source");
+    let restored = Player::restore(serde_json::from_value(json).unwrap());
+    assert_eq!(restored.library().tracks(), original.tracks);
+    assert_eq!(restored.playlist().tracks(), original.tracks);
+    assert!(restored.saved_playlists().is_empty());
+}

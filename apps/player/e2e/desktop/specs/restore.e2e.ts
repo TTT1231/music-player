@@ -61,7 +61,9 @@ describe("重启后恢复", () => {
             await browser.execute(() => document.querySelector(".desktop-control-play")?.getAttribute("aria-label")),
         ).toBe("播放");
         expect(
-            await browser.execute(() => document.querySelector(".desktop-control-side")?.getAttribute("aria-label")),
+            await browser.execute(() =>
+                document.querySelector('[aria-label^="播放模式："]')?.getAttribute("aria-label"),
+            ),
         ).toBe("播放模式：随机播放");
 
         // 音量弹层显示 40%

@@ -431,3 +431,28 @@ fn imports_saf_uris_by_treating_location_verbatim() {
     controller.play_track(&report.added[0]);
     assert_eq!(backend.lock().unwrap().loaded, vec![uri]);
 }
+
+#[test]
+fn playlist_commands_keep_library_queue_and_saved_selection_separate_after_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.json");
+    let (mut controller, _) = setup(&session);
+    let ids = controller.import_paths(&paths()).unwrap().added;
+    let list = controller.create_playlist("收藏".into()).unwrap();
+    controller
+        .add_playlist_tracks(list.clone(), vec![ids[1].clone(), ids[0].clone()])
+        .unwrap();
+    controller
+        .play_playlist(Some(list.clone()), Some(ids[1].clone()))
+        .unwrap();
+    assert_eq!(controller.state().tracks.len(), 2);
+    controller.remove_queue_track(&ids[1]);
+    assert_eq!(controller.state().library.len(), 3);
+    assert_eq!(controller.state().playlists[0].track_ids.len(), 2);
+    controller.save().unwrap();
+    drop(controller);
+    let (restored, _) = setup(&session);
+    assert_eq!(restored.state().tracks.len(), 1);
+    assert_eq!(restored.state().library.len(), 3);
+    assert_eq!(restored.state().playlists[0].track_ids.len(), 2);
+}

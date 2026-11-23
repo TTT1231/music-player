@@ -17,6 +17,7 @@ export type QueuePanelProps = {
     onMove: (from: number, to: number) => void;
     onImport: () => void;
     onClose: () => void;
+    onShowLyrics?: (id?: string) => void;
 };
 
 type Drag = {
@@ -102,6 +103,7 @@ export const QueuePanel = memo(function QueuePanel({
     onMove,
     onImport,
     onClose,
+    onShowLyrics,
 }: QueuePanelProps) {
     const [compact, setCompact] = useState(false);
     const [searching, setSearching] = useState(false);
@@ -260,7 +262,15 @@ export const QueuePanel = memo(function QueuePanel({
             aria-hidden={!open}
         >
             <div className="q-head">
-                <h2 className="q-title">播放队列</h2>
+                <h2 className="q-title">
+                    {onShowLyrics ? (
+                        <button type="button" onClick={() => onShowLyrics()}>
+                            播放队列
+                        </button>
+                    ) : (
+                        "播放队列"
+                    )}
+                </h2>
                 <div className="q-tools">
                     <button
                         type="button"
@@ -356,6 +366,7 @@ export const QueuePanel = memo(function QueuePanel({
                                 tabIndex={0}
                                 data-id={track.id}
                                 className={`q-row${current ? " on" : ""}`}
+                                onClick={() => onShowLyrics?.(track.id)}
                                 onDoubleClick={() => onPlay(track.id)}
                                 onKeyDown={event => {
                                     if (event.key === "Enter") onPlay(track.id);
@@ -428,8 +439,8 @@ export const QueuePanel = memo(function QueuePanel({
                                         type="button"
                                         className="q-del"
                                         tabIndex={-1}
-                                        aria-label="从播放列表移除"
-                                        title="从播放列表移除"
+                                        aria-label="从播放队列移除"
+                                        title="从播放队列移除"
                                         onPointerDown={event => event.stopPropagation()}
                                         onDoubleClick={event => event.stopPropagation()}
                                         onClick={event => {

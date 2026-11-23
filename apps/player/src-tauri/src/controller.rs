@@ -12,8 +12,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use music_core::{
-    FileRef, ImportReport, PlayMode, Player, Playlist, Step, TrackId, decode_text, load_session, parse_lrc,
-    save_session,
+    FileRef, ImportReport, PlayMode, Player, Playlist, SavedPlaylist, Step, TrackId, decode_text, load_session,
+    parse_lrc, save_session,
 };
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Serialize;
@@ -99,6 +99,9 @@ pub struct TrackView {
 #[serde(rename_all = "camelCase")]
 pub struct PlayerState {
     pub tracks: Vec<TrackView>,
+    pub library: Vec<TrackView>,
+    pub playlists: Vec<SavedPlaylist>,
+    pub queue_source: Option<String>,
     pub current_id: Option<String>,
     pub playing: bool,
     pub mode: PlayMode,
@@ -194,7 +197,7 @@ impl<B: AudioBackend> Controller<B> {
         };
         let ids = controller
             .player
-            .playlist()
+            .library()
             .tracks()
             .iter()
             .filter(|t| t.duration_ms.is_none())
@@ -205,23 +208,26 @@ impl<B: AudioBackend> Controller<B> {
     }
 
     pub fn state(&self) -> PlayerState {
-        let tracks = self
-            .player
-            .playlist()
-            .tracks()
-            .iter()
-            .map(|track| TrackView {
-                id: track.id.0.clone(),
-                title: track.title.clone(),
-                artist: track.artist.clone(),
-                has_lyrics: track.lyrics.is_some(),
-                duration_ms: track.duration_ms,
-                cover_url: cover_url_for(&track.id.0, cfg!(any(target_os = "windows", target_os = "android"))),
-            })
-            .collect();
+        let views = |tracks: &[music_core::Track]| {
+            tracks
+                .iter()
+                .map(|track| TrackView {
+                    id: track.id.0.clone(),
+                    title: track.title.clone(),
+                    artist: track.artist.clone(),
+                    has_lyrics: track.lyrics.is_some(),
+                    duration_ms: track.duration_ms,
+                    cover_url: cover_url_for(&track.id.0, cfg!(any(target_os = "windows", target_os = "android"))),
+                })
+                .collect()
+        };
+        let tracks = views(self.player.playlist().tracks());
         let current = self.player.current();
         PlayerState {
             tracks,
+            library: views(self.player.library().tracks()),
+            playlists: self.player.saved_playlists().to_vec(),
+            queue_source: self.player.queue_source().map(str::to_owned),
             current_id: current.map(|id| id.0.clone()),
             playing: self.player.is_playing(),
             mode: self.player.mode(),
@@ -245,7 +251,7 @@ impl<B: AudioBackend> Controller<B> {
 
     pub fn cover_path(&self, id: &str) -> Option<PathBuf> {
         self.player
-            .playlist()
+            .library()
             .get(&TrackId(id.to_owned()))
             .map(|track| PathBuf::from(&track.audio))
     }
@@ -267,6 +273,16 @@ impl<B: AudioBackend> Controller<B> {
         library: &LibraryFiles,
         remove_source: impl Fn(&str) -> io::Result<()>,
     ) -> io::Result<ImportResult> {
+        self.import_managed_with_queue(files, library, remove_source, true)
+    }
+
+    pub fn import_managed_with_queue(
+        &mut self,
+        files: Vec<FileRef>,
+        library: &LibraryFiles,
+        remove_source: impl Fn(&str) -> io::Result<()>,
+        into_queue: bool,
+    ) -> io::Result<ImportResult> {
         let (files, duplicates) = library.unique_files(&self.player, files);
         let mut preview = self.player.clone();
         let report = preview.import(files.iter().cloned());
@@ -276,7 +292,11 @@ impl<B: AudioBackend> Controller<B> {
 
         let (files, staged) = library.stage(&preview, files, &self.resolver)?;
         let mut next = self.player.clone();
-        let report = next.import(files);
+        let report = if into_queue {
+            next.import(files)
+        } else {
+            next.import_library(files)
+        };
         save_session(&self.session_path, &next.session())?;
         self.player = next;
         let sources_kept = staged.commit(remove_source);
@@ -320,7 +340,7 @@ impl<B: AudioBackend> Controller<B> {
 
     pub fn remove_managed(&mut self, id: &str, library: &LibraryFiles) -> io::Result<()> {
         let id = TrackId(id.into());
-        let Some(track) = self.player.playlist().get(&id).cloned() else {
+        let Some(track) = self.player.library().get(&id).cloned() else {
             return Ok(());
         };
         let mut next = self.player.clone();
@@ -351,6 +371,42 @@ impl<B: AudioBackend> Controller<B> {
             self.loaded = None;
         }
         self.changed();
+    }
+
+    pub fn create_playlist(&mut self, name: String) -> Result<String, String> {
+        let id = self.player.create_saved_playlist(&name)?;
+        self.changed();
+        Ok(id)
+    }
+
+    pub fn add_playlist_tracks(&mut self, id: String, tracks: Vec<String>) -> Result<(), String> {
+        self.player
+            .add_to_saved_playlist(&id, &tracks.into_iter().map(TrackId).collect::<Vec<_>>())?;
+        self.changed();
+        Ok(())
+    }
+
+    pub fn remove_playlist_track(&mut self, id: String, track: String) -> Result<(), String> {
+        self.player.remove_from_saved_playlist(&id, &TrackId(track))?;
+        self.changed();
+        Ok(())
+    }
+
+    pub fn play_playlist(&mut self, id: Option<String>, track: Option<String>) -> Result<(), String> {
+        let track = track.map(TrackId);
+        let step = self.player.play_saved_playlist(id.as_deref(), track.as_ref())?;
+        self.apply_step(step);
+        self.changed();
+        Ok(())
+    }
+
+    pub fn remove_queue_track(&mut self, id: &str) {
+        let id = TrackId(id.to_owned());
+        if self.player.playlist().get(&id).is_none() {
+            return;
+        }
+        let step = self.player.remove_from_queue(&id);
+        self.finish_removal(&id, step);
     }
     pub fn play(&mut self) {
         if !self.backend.available() {
@@ -448,7 +504,7 @@ impl<B: AudioBackend> Controller<B> {
     pub fn lyrics(&self, id: &str) -> io::Result<music_core::Lyrics> {
         let Some(path) = self
             .player
-            .playlist()
+            .library()
             .get(&TrackId(id.to_owned()))
             .and_then(|track| track.lyrics.as_ref())
         else {
@@ -510,7 +566,7 @@ impl<B: AudioBackend> Controller<B> {
             self.generation.fetch_add(1, Ordering::SeqCst);
         }
         while let Ok(result) = self.probe_results.try_recv() {
-            let current = self.player.playlist().get(&result.job.id);
+            let current = self.player.library().get(&result.job.id);
             if self.probe_tokens.get(&result.job.id) == Some(&result.job.token)
                 && current.is_some_and(|track| track.audio == result.job.location && track.duration_ms.is_none())
                 && let Some(duration) = result.duration_ms
@@ -533,7 +589,7 @@ impl<B: AudioBackend> Controller<B> {
     }
     fn schedule_probes(&mut self, ids: Vec<TrackId>) {
         for id in ids {
-            if let Some(track) = self.player.playlist().get(&id) {
+            if let Some(track) = self.player.library().get(&id) {
                 self.next_probe_token = self.next_probe_token.wrapping_add(1);
                 self.probe_tokens.insert(id.clone(), self.next_probe_token);
                 let _ = self.probe_jobs.send(ProbeJob {

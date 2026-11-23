@@ -12,6 +12,7 @@ import { commands, type TrackView } from "../ipc";
 import { playerStore, usePlayerState } from "../store";
 import { ImportDialog } from "./ImportDialog";
 import { QueuePanel } from "./QueuePanel";
+import { PlaylistView } from "./PlaylistView";
 import { useNativeImportDrop } from "./useNativeImportDrop";
 import "./DesktopLayout.css";
 
@@ -29,6 +30,7 @@ const icons = {
     volume: "M4 9v6h4l5 4V5L8 9H4zM16.5 8.5a5 5 0 0 1 0 7",
     mute: "M4 9v6h4l5 4V5L8 9H4zM16.5 9.5l5 5M21.5 9.5l-5 5",
     queue: "M4 6h16M4 11h16M4 16h8M15.5 14l5 3-5 3z",
+    playlists: "M4 5h16M4 10h13M4 15h7M17 18v-6l4-1v6m-4 1c0 1-1 2-2 2s-2-.5-2-1.5 1-1.5 2-1.5c.8 0 2 .4 2 1z",
     min: "M6 12h12",
     max: "M6 6h12v12H6z",
     close: "M6 6l12 12M18 6 6 18",
@@ -114,8 +116,10 @@ function useStageColors(track: TrackView | undefined, revision?: number) {
 export function DesktopLayout() {
     const { state, notice, error } = usePlayerState();
     const [queueOpen, setQueueOpen] = useState(true);
+    const [playlistsOpen, setPlaylistsOpen] = useState(false);
     const [popup, setPopup] = useState<Popup>(null);
     const [importOpen, setImportOpen] = useState(false);
+    const [importIntoQueue, setImportIntoQueue] = useState(true);
     const [removalId, setRemovalId] = useState<string | null>(null);
     const [preview, setPreview] = useState<number | null>(null);
     const [lines, setLines] = useState<LyricLine[]>([]);
@@ -127,7 +131,7 @@ export function DesktopLayout() {
     const [droppedPaths, setDroppedPaths] = useState<string[] | null>(null);
     const slider = useRef<HTMLDivElement>(null);
     const current = state?.tracks.find(track => track.id === state.currentId);
-    const pendingRemoval = state?.tracks.find(track => track.id === removalId);
+    const pendingRemoval = (state?.library ?? state?.tracks)?.find(track => track.id === removalId);
     const revision = current ? revisions[current.id] : undefined;
     const stage = useStageColors(current, revision);
     const mode = MODES.find(item => item.id === state?.mode) ?? MODES[1];
@@ -151,11 +155,19 @@ export function DesktopLayout() {
     // 播放队列是 memo 组件：回调保持稳定，进度预览等局部更新不会重渲染整张列表
     const playTrack = useCallback((id: string) => run(commands.playTrack(id)), [run]);
     const removeTrack = useCallback(
-        (id: string) => run(commands.removeTrack(id).then(() => showToast("已从播放列表移除"))),
+        (id: string) => run(commands.removeTrack(id).then(() => showToast("已从曲库移除"))),
+        [run, showToast],
+    );
+    const removeQueueTrack = useCallback(
+        (id: string) =>
+            run(commands.removeQueueTrack(id).then(() => showToast("已从播放队列移除，歌单中的歌曲仍保留。"))),
         [run, showToast],
     );
     const moveTrack = useCallback((from: number, to: number) => run(commands.moveTrack(from, to)), [run]);
-    const openImport = useCallback(() => setImportOpen(true), []);
+    const openImport = useCallback(() => {
+        setImportIntoQueue(true);
+        setImportOpen(true);
+    }, []);
     const closeQueue = useCallback(() => setQueueOpen(false), []);
     useEffect(() => {
         if (notice) showToast(`无法读取 ${notice.title}，已跳过`);
@@ -233,6 +245,7 @@ export function DesktopLayout() {
     }, [popup]);
     useNativeImportDrop({
         onEnter: () => {
+            setImportIntoQueue(true);
             setImportOpen(true);
             setDragging(true);
         },
@@ -277,31 +290,58 @@ export function DesktopLayout() {
                     {button("最大化", icons.max, () => windowAction("toggleMaximize"), "desktop-window-button")}
                     {button("关闭", icons.close, () => windowAction("close"), "desktop-window-button")}
                 </div>
-                <div className="desktop-now-playing">
-                    <div className="desktop-heading">
+                {!playlistsOpen && (
+                    <div className="desktop-now-playing">
+                        <div className="desktop-heading">
+                            {current && (
+                                <Cover
+                                    id={current.id}
+                                    title={current.title}
+                                    coverUrl={current.coverUrl}
+                                    revision={revision}
+                                    size={64}
+                                />
+                            )}
+                            <div className="desktop-heading-text">
+                                <h1>{current?.title ?? "选一首歌开始"}</h1>
+                                <p>{current?.artist ?? "在右侧播放队列里双击歌曲"}</p>
+                            </div>
+                        </div>
                         {current && (
-                            <Cover
-                                id={current.id}
-                                title={current.title}
-                                coverUrl={current.coverUrl}
-                                revision={revision}
-                                size={64}
+                            <LiveLyrics
+                                lines={lines}
+                                preview={preview}
+                                onSeek={ms => run(commands.seek(ms))}
+                                className={queueOpen ? "" : "center"}
                             />
                         )}
-                        <div className="desktop-heading-text">
-                            <h1>{current?.title ?? "选一首歌开始"}</h1>
-                            <p>{current?.artist ?? "在右侧播放队列里双击歌曲"}</p>
-                        </div>
                     </div>
-                    {current && (
-                        <LiveLyrics
-                            lines={lines}
-                            preview={preview}
-                            onSeek={ms => run(commands.seek(ms))}
-                            className={queueOpen ? "" : "center"}
-                        />
-                    )}
-                </div>
+                )}
+                {playlistsOpen && (
+                    <PlaylistView
+                        library={state?.library ?? state?.tracks ?? NO_TRACKS}
+                        playlists={state?.playlists ?? []}
+                        currentId={state?.currentId ?? null}
+                        playing={state?.playing ?? false}
+                        onCreate={commands.createPlaylist}
+                        onAdd={commands.addPlaylistTracks}
+                        onRemove={(id, track) => run(commands.removePlaylistTrack(id, track))}
+                        onRemoveLibrary={setRemovalId}
+                        onPlay={(id, track) =>
+                            run(
+                                track &&
+                                    state?.queueSource === (id ?? "all") &&
+                                    state.tracks.some(item => item.id === track)
+                                    ? commands.playTrack(track)
+                                    : commands.playPlaylist(id, track),
+                            )
+                        }
+                        onImport={() => {
+                            setImportIntoQueue(false);
+                            setImportOpen(true);
+                        }}
+                    />
+                )}
                 <QueuePanel
                     tracks={state?.tracks ?? NO_TRACKS}
                     currentId={state?.currentId ?? null}
@@ -310,10 +350,18 @@ export function DesktopLayout() {
                     coverRevisions={revisions}
                     locateRequest={locateRequest}
                     onPlay={playTrack}
-                    onRemove={setRemovalId}
+                    onRemove={removeQueueTrack}
                     onMove={moveTrack}
                     onImport={openImport}
                     onClose={closeQueue}
+                    onShowLyrics={
+                        playlistsOpen
+                            ? id => {
+                                  if (id && id !== state?.currentId) playTrack(id);
+                                  setPlaylistsOpen(false);
+                              }
+                            : undefined
+                    }
                 />
             </section>
             <footer className="desktop-bar">
@@ -348,6 +396,12 @@ export function DesktopLayout() {
                     </span>
                 </div>
                 <div className="desktop-controls">
+                    {button(
+                        playlistsOpen ? "收起歌单，返回歌词" : "展开歌单",
+                        icons.playlists,
+                        () => setPlaylistsOpen(open => !open),
+                        "desktop-control-side",
+                    )}
                     <div className="desktop-control-wrap">
                         <button
                             type="button"
@@ -432,7 +486,12 @@ export function DesktopLayout() {
                         aria-label="播放队列"
                         aria-pressed={queueOpen}
                         title="播放队列"
-                        onClick={() => setQueueOpen(open => !open)}
+                        onClick={() => {
+                            if (playlistsOpen) {
+                                setPlaylistsOpen(false);
+                                setQueueOpen(true);
+                            } else setQueueOpen(open => !open);
+                        }}
                     >
                         <Icon path={icons.queue} />
                     </button>
@@ -492,6 +551,7 @@ export function DesktopLayout() {
             </footer>
             {importOpen && (
                 <ImportDialog
+                    intoQueue={importIntoQueue}
                     onClose={() => {
                         setImportOpen(false);
                         setDragging(false);
@@ -507,7 +567,7 @@ export function DesktopLayout() {
                         })
                     }
                     onGoListen={id => {
-                        if (id) {
+                        if (id && importIntoQueue) {
                             setQueueOpen(true);
                             setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
                         }

@@ -16,8 +16,8 @@ function playTrack(id: string): void {
     );
 }
 
-describe("从播放列表移除曲库文件", () => {
-    it("导入移动原文件，键盘确认后删除对应的音乐和歌词", async () => {
+describe("从队列和曲库移除", () => {
+    it("队列移除保留文件，曲库确认移除后删除对应的音乐和歌词", async () => {
         await importFixtures();
         const before = await queueRows();
         expect(before).toHaveLength(4);
@@ -32,11 +32,17 @@ describe("从播放列表移除曲库文件", () => {
         expect(existsSync(path.join(inputDir, "Test Artist - Track Two.lrc"))).toBe(false);
         await row.click();
         await browser.keys(["Delete"]);
-        await (await browser.$("button=取消")).click();
-        expect(await queueRows()).toEqual(before);
-        await browser.keys(["Delete"]);
-        await (await browser.$("button=确认移除")).click();
         await browser.waitUntil(async () => (await queueRows()).length === 3);
+        expect(existsSync(audio)).toBe(true);
+        expect(existsSync(lyrics)).toBe(true);
+        await (await browser.$('[aria-label="展开歌单"]')).click();
+        const remove = await browser.$('[aria-label="从曲库移除 Track Two"]');
+        await remove.click();
+        await (await browser.$("button=取消")).click();
+        expect(existsSync(audio)).toBe(true);
+        await remove.click();
+        await (await browser.$("button=确认移除")).click();
+        await browser.waitUntil(() => !existsSync(audio));
 
         expect(await queueRows()).not.toContain("Track Two");
         expect(existsSync(audio)).toBe(false);
@@ -64,7 +70,6 @@ describe("从播放列表移除曲库文件", () => {
         const row = (await browser.$$(".q-row"))[index];
         await row.click();
         await browser.keys(["Delete"]);
-        await (await browser.$("button=确认移除")).click();
         await browser.waitUntil(async () => (await queueRows()).length === 3);
 
         const remaining = await queueRows();
