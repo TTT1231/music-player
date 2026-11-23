@@ -45,6 +45,7 @@ describe("桌面歌单弹层与滚动区域", () => {
         await (await browser.$('[aria-label="选择 Track Two"]')).click();
         await (await browser.$("button=添加")).click();
         await browser.waitUntil(async () => (await browser.$('[aria-label="从当前歌单移出 Track Two"]')).isExisting());
+        await (await browser.$(".playlist-picker")).waitForDisplayed({ reverse: true });
         await (await browser.$("button=添加歌曲")).click();
         await (await browser.$('[aria-label="选择 Track Three"]')).click();
         const state = await browser.execute(() => {
