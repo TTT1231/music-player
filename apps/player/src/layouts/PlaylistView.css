@@ -63,13 +63,51 @@
     background: rgba(255, 255, 255, 0.09);
 }
 .playlist-create,
-.playlist-picker {
+.playlist-picker,
+.playlist-context-menu {
     z-index: 5;
     position: absolute;
     background: #454648;
     box-shadow: 0 8px 20px #0005;
     border: 1px solid #606164;
     border-radius: 8px;
+}
+.playlist-context-menu {
+    position: fixed;
+    z-index: 20;
+    box-sizing: border-box;
+    max-width: min(280px, calc(100vw - 8px));
+    padding: 4px;
+}
+.playlist-context-menu button {
+    display: block;
+    width: 100%;
+    min-height: 36px;
+    overflow: hidden;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #ffb3b3;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.playlist-context-menu button:hover,
+.playlist-context-menu button:focus-visible {
+    background: rgb(255 255 255 / 10%);
+}
+.playlist-context-menu button:focus-visible {
+    outline: 2px solid #b7cbe6;
+    outline-offset: -2px;
+}
+.playlist-delete-error {
+    display: block;
+    margin-top: 8px;
+    color: #a32b2b;
 }
 .playlist-create {
     top: 62px;

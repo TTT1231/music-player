@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Cover } from "../components/Cover";
 import { formatTime } from "../components/formatTime";
 import type { SavedPlaylist, TrackView } from "../ipc";
+import { PlaylistContextMenu, type PlaylistMenuPosition } from "./PlaylistContextMenu";
 import "./PlaylistView.css";
 
 type Props = {
@@ -11,6 +13,7 @@ type Props = {
     playing: boolean;
     onCreate: (name: string) => Promise<string>;
     onAdd: (id: string, tracks: string[]) => Promise<number>;
+    onDelete: (id: string) => Promise<void>;
     onRemove: (id: string, track: string) => void;
     onRemoveLibrary?: (track: string) => void;
     onPlay: (id: string | null, track: string | null) => void;
@@ -24,6 +27,7 @@ export function PlaylistView({
     playing,
     onCreate,
     onAdd,
+    onDelete,
     onRemove,
     onRemoveLibrary,
     onPlay,
@@ -37,8 +41,12 @@ export function PlaylistView({
     const [picking, setPicking] = useState(false);
     const [pickerQuery, setPickerQuery] = useState("");
     const [picked, setPicked] = useState<string[]>([]);
+    const [menu, setMenu] = useState<PlaylistMenuPosition | null>(null);
+    const [deletion, setDeletion] = useState<{ id: string; name: string; error?: string } | null>(null);
+    const navigation = useRef<HTMLElement>(null);
     const selectAll = useRef<HTMLInputElement>(null);
     const active = playlists.find(list => list.id === selected);
+    const activeId = active?.id ?? null;
     const ids = active?.trackIds ?? [];
     const byId = new Map(library.map(track => [track.id, track]));
     const tracks = active ? ids.flatMap(id => (byId.get(id) ? [byId.get(id)!] : [])) : library;
@@ -134,11 +142,15 @@ export function PlaylistView({
                         </div>
                     </form>
                 )}
-                <nav aria-label="已保存的歌单">
+                <nav ref={navigation} aria-label="已保存的歌单">
                     <button
                         type="button"
-                        aria-current={selected === null ? "page" : undefined}
+                        aria-current={activeId === null ? "page" : undefined}
                         onClick={() => choose(null)}
+                        onContextMenu={event => {
+                            event.preventDefault();
+                            setMenu(null);
+                        }}
                     >
                         <span>☷ &nbsp;全部音乐</span>
                         <span>{library.length}</span>
@@ -148,7 +160,26 @@ export function PlaylistView({
                             type="button"
                             key={list.id}
                             aria-current={selected === list.id ? "page" : undefined}
+                            aria-haspopup="menu"
+                            aria-expanded={menu?.playlist.id === list.id}
+                            aria-keyshortcuts="Shift+F10"
                             onClick={() => choose(list.id)}
+                            onContextMenu={event => {
+                                event.preventDefault();
+                                setMenu({
+                                    playlist: list,
+                                    trigger: event.currentTarget,
+                                    x: event.clientX,
+                                    y: event.clientY,
+                                });
+                            }}
+                            onKeyDown={event => {
+                                if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                                event.preventDefault();
+                                const trigger = event.currentTarget;
+                                const { left, bottom } = trigger.getBoundingClientRect();
+                                setMenu({ playlist: list, trigger, x: left, y: bottom });
+                            }}
                         >
                             <span>♫ &nbsp;{list.name}</span>
                             <span>{list.trackIds.length}</span>
@@ -168,7 +199,7 @@ export function PlaylistView({
                             className="playlist-primary"
                             aria-label="播放全部"
                             disabled={!tracks.length}
-                            onClick={() => onPlay(selected, null)}
+                            onClick={() => onPlay(activeId, null)}
                         >
                             ▶ &nbsp;播放全部
                         </button>
@@ -293,7 +324,7 @@ export function PlaylistView({
                                                 className="playlist-track"
                                                 type="button"
                                                 aria-label={`播放 ${track.title}`}
-                                                onClick={() => onPlay(selected, track.id)}
+                                                onClick={() => onPlay(activeId, track.id)}
                                             >
                                                 <Cover
                                                     id={track.id}
@@ -331,6 +362,56 @@ export function PlaylistView({
                     )}
                 </div>
             </section>
+            {menu && (
+                <PlaylistContextMenu
+                    menu={menu}
+                    onDismiss={() => setMenu(null)}
+                    onDelete={() => {
+                        menu.trigger.focus({ preventScroll: true });
+                        setMenu(null);
+                        const { id, name } = menu.playlist;
+                        setDeletion({ id, name });
+                    }}
+                />
+            )}
+            {deletion && (
+                <ConfirmDialog
+                    title="删除歌单"
+                    description={
+                        <>
+                            {`确定删除「${deletion.name}」？歌单里的歌曲仍保留在「全部音乐」。`}
+                            {deletion.error && (
+                                <span role="alert" className="playlist-delete-error">
+                                    {deletion.error}
+                                </span>
+                            )}
+                        </>
+                    }
+                    okLabel="删除"
+                    onCancel={() => setDeletion(null)}
+                    onConfirm={async () => {
+                        try {
+                            await onDelete(deletion.id);
+                            setSelected(current => (current === deletion.id ? null : current));
+                            if (selected === deletion.id) {
+                                setQuery("");
+                                closePicker();
+                            }
+                            setDeletion(current => (current === deletion ? null : current));
+                            requestAnimationFrame(() => {
+                                if (document.activeElement === document.body)
+                                    navigation.current
+                                        ?.querySelector<HTMLButtonElement>('[aria-current="page"]')
+                                        ?.focus();
+                            });
+                        } catch (reason) {
+                            setDeletion(current =>
+                                current === deletion ? { ...deletion, error: String(reason) } : current,
+                            );
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

@@ -325,6 +325,7 @@ export function DesktopLayout() {
                         playing={state?.playing ?? false}
                         onCreate={commands.createPlaylist}
                         onAdd={commands.addPlaylistTracks}
+                        onDelete={commands.deletePlaylist}
                         onRemove={(id, track) => run(commands.removePlaylistTrack(id, track))}
                         onRemoveLibrary={setRemovalId}
                         onPlay={(id, track) =>
