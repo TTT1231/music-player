@@ -371,11 +371,14 @@ impl<B: AudioBackend> Controller<B> {
         remove_source: impl Fn(&str) -> io::Result<()>,
         into_queue: bool,
     ) -> io::Result<ImportResult> {
+        let images = files.clone();
         let (files, duplicates) = library.unique_files(&self.player, files);
         let mut preview = self.player.clone();
         let report = preview.import(files.iter().cloned());
+        let staged_images = library.stage_images(&preview, &images, &self.resolver)?;
         if report.added.is_empty() && report.lyrics_attached == 0 {
-            return Ok(self.finish_import(report, duplicates, 0));
+            let sources_kept = staged_images.commit(remove_source);
+            return Ok(self.finish_import(report, duplicates, sources_kept));
         }
 
         let (files, staged) = library.stage(&preview, files, &self.resolver)?;
@@ -386,7 +389,7 @@ impl<B: AudioBackend> Controller<B> {
         }
         save_session(&self.session_path, &next.session())?;
         self.player = next;
-        let sources_kept = staged.commit(remove_source);
+        let sources_kept = staged.commit(&remove_source) + staged_images.commit(remove_source);
         Ok(self.finish_import(report, duplicates, sources_kept))
     }
 

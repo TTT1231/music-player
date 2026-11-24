@@ -30,6 +30,32 @@ impl LibraryFiles {
         self.cover_path(id).and_then(|path| crate::cover::read_image(&path))
     }
 
+    pub(crate) fn stage_images(
+        &self,
+        player: &Player,
+        files: &[FileRef],
+        open: &LocationResolver,
+    ) -> io::Result<StagedFiles> {
+        let mut staged = StagedFiles::default();
+        for file in files {
+            let Some((stem, ext)) = file.file_name.rsplit_once('.') else {
+                continue;
+            };
+            if stem.trim().is_empty() || !["jpg", "jpeg", "png"].iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+                continue;
+            }
+            let id = stem.trim().to_lowercase();
+            if !player.library().tracks().iter().any(|track| track.id.0 == id) || self.cover_path(&id).is_some() {
+                continue;
+            }
+            let folder = self.root.join("img");
+            fs::create_dir_all(&folder)?;
+            let saved = stage_file(&folder, &file.location, &file.file_name, open)?;
+            staged.files.push((file.location.clone(), saved));
+        }
+        Ok(staged)
+    }
+
     pub(crate) fn unique_files(&self, player: &Player, mut files: Vec<FileRef>) -> (Vec<FileRef>, usize) {
         let mut names = HashSet::new();
         for track in player.library().tracks() {
@@ -99,6 +125,10 @@ impl LibraryFiles {
             // 源文件的同名图片一并入库，移除歌曲时一并删除
             #[cfg(desktop)]
             if folder_name == "music"
+                && Path::new(&file.file_name)
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .is_some_and(|stem| self.cover_path(stem).is_none())
                 && let Some(image) = crate::cover::import_sidecar(source)
                 && let Some(image_name) = image.file_name().and_then(|name| name.to_str())
             {

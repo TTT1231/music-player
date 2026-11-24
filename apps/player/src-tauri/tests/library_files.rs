@@ -32,6 +32,36 @@ fn remove_source(path: &str) -> io::Result<()> {
 }
 
 #[test]
+fn imports_selected_images_for_existing_and_new_tracks_without_overwriting() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = tempfile::tempdir().unwrap();
+    let library = LibraryFiles::new(dir.path().join("assets"));
+    let mut player = controller(&dir.path().join("session.json"));
+    let old = source(input.path(), "甲 - 歌.mp3", b"audio");
+    player.import_managed(vec![old], &library, remove_source).unwrap();
+    let image = source(input.path(), "甲 - 歌.jpg", b"cover");
+    let audio = source(input.path(), "乙 - 曲.mp3", b"audio");
+    let second = source(input.path(), "乙 - 曲.png", b"second");
+    let orphan = source(input.path(), "无关.jpg", b"orphan");
+    player
+        .import_managed(
+            vec![image.clone(), audio, second, orphan.clone()],
+            &library,
+            remove_source,
+        )
+        .unwrap();
+    assert_eq!(fs::read(dir.path().join("assets/img/甲 - 歌.jpg")).unwrap(), b"cover");
+    assert_eq!(fs::read(dir.path().join("assets/img/乙 - 曲.png")).unwrap(), b"second");
+    assert!(Path::new(&orphan.location).exists());
+    let again = source(input.path(), "甲 - 歌.jpg", b"replacement");
+    player
+        .import_managed(vec![again.clone()], &library, remove_source)
+        .unwrap();
+    assert_eq!(fs::read(dir.path().join("assets/img/甲 - 歌.jpg")).unwrap(), b"cover");
+    assert!(Path::new(&again.location).exists());
+}
+
+#[test]
 fn moves_only_the_first_copy_of_each_name_then_removes_the_owned_pair() {
     let dir = tempfile::tempdir().unwrap();
     let input = tempfile::tempdir().unwrap();
